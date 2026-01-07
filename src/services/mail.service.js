@@ -5,10 +5,11 @@ let transporter = null
 
 const getTransporter = () => {
     if (!transporter) {
+        const port = Number(env.mail.port) || 587
         transporter = nodemailer.createTransport({
             host: env.mail.host,
-            port: env.mail.port,
-            secure: env.mail.port === 465,
+            port,
+            secure: port === 465,
             auth: env.mail.user ? { user: env.mail.user, pass: env.mail.pass } : undefined
         })
     }
@@ -48,3 +49,4 @@ export const sendActivationEmail = async ({ to, link }) => {
         `
     })
 }
+
