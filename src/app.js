@@ -37,6 +37,13 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 }
 
+app.use((req, res, next) => {
+  if (req.headers.origin) {
+    console.log('🔍 Origin recibido:', req.headers.origin)
+  }
+  next()
+})
+
 app.use(cors(corsOptions))
 
 app.use(helmet())
