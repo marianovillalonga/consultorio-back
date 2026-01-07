@@ -8,19 +8,56 @@ import routes from './routes/index.js'
 
 const app = express()
 
+const allowedOrigins = (env?.cors?.origin || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean)
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
+    return cb(new Error('Not allowed by CORS'))
+  },
+  credentials: true,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  exposedHeaders: ['X-CSRF-Token'],
+  optionsSuccessStatus: 204
+}
+
+app.use(cors(corsOptions))
+
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    const reqHeaders = req.headers['access-control-request-headers']
+    const origin = req.headers.origin
+
+    if (origin && (!allowedOrigins.length || allowedOrigins.includes(origin))) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+      res.setHeader('Vary', 'Origin')
+      res.setHeader('Access-Control-Allow-Credentials', 'true')
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
+      if (reqHeaders) res.setHeader('Access-Control-Allow-Headers', reqHeaders)
+    }
+    return res.sendStatus(204)
+  }
+  next()
+})
+
 app.use(helmet())
-app.use(
-    cors({
-        origin: env.cors.origin ? env.cors.origin.split(',') : true,
-        credentials: true
-    })
-)
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
+
 app.use(csrfProtect)
 
 app.get('/health', (req, res) => res.json({ status: 'OK' }))
-
 app.use('/api', routes)
+
+app.use((err, req, res, next) => {
+  console.error('[Error Handler]', err)
+  if (err?.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'CORS: origin no permitido' })
+  }
+  res.status(500).json({ error: 'Internal Server Error' })
+})
 
 export default app
