@@ -8,46 +8,42 @@ import routes from './routes/index.js'
 
 const app = express()
 
-const allowedOrigins = (env?.cors?.origin || '')
+const whitelist = (env?.cors?.origin || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean)
 
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true 
+  try {
+    const url = new URL(origin)
+    const host = url.hostname
+    return whitelist.some(item => {
+      if (item.startsWith('*.')) {
+        const base = item.slice(2)
+        return host === base || host.endsWith(`.${base}`)
+      }
+      return item === origin
+    })
+  } catch { return false }
+}
+
 const corsOptions = {
-  origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
-    return cb(new Error('Not allowed by CORS'))
-  },
+  origin: (origin, cb) => isAllowedOrigin(origin) ? cb(null, true) : cb(new Error('Not allowed by CORS')),
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','X-CSRF-Token'],
   exposedHeaders: ['X-CSRF-Token'],
-  optionsSuccessStatus: 204
+  optionsSuccessStatus: 204,
 }
 
 app.use(cors(corsOptions))
-
-app.use((req, res, next) => {
-  if (req.method === 'OPTIONS') {
-    const reqHeaders = req.headers['access-control-request-headers']
-    const origin = req.headers.origin
-
-    if (origin && (!allowedOrigins.length || allowedOrigins.includes(origin))) {
-      res.setHeader('Access-Control-Allow-Origin', origin)
-      res.setHeader('Vary', 'Origin')
-      res.setHeader('Access-Control-Allow-Credentials', 'true')
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
-      if (reqHeaders) res.setHeader('Access-Control-Allow-Headers', reqHeaders)
-    }
-    return res.sendStatus(204)
-  }
-  next()
-})
 
 app.use(helmet())
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
 
-app.use(csrfProtect)
+app.use((req, res, next) => req.method === 'OPTIONS' ? next() : csrfProtect(req, res, next))
 
 app.get('/health', (req, res) => res.json({ status: 'OK' }))
 app.use('/api', routes)
