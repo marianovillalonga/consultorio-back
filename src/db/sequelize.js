@@ -1,9 +1,14 @@
 import { Sequelize } from 'sequelize'
+import mysql from 'mysql2'
 import { env } from '../config/env.js'
 
-export const sequelize = new Sequelize(env.db.name, env.db.user, env.db.pass, {
-    host: env.db.host,
-    port: env.db.port,
+const connectionUrl = process.env.DATABASE_URL ||  `mysql://${env.db.user}:${env.db.pass}@${env.db.host}:${env.db.port}/${env.db.name}`
+
+export const sequelize = new Sequelize(connectionUrl, {
     dialect: 'mysql',
-    logging: false
+    dialectModule: mysql,
+    logging: false,
+    dialectOptions: {
+        ssl: { require: true, rejectUnauthorized: false }
+    }
 })
