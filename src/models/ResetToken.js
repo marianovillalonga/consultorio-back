@@ -3,7 +3,7 @@ import { sequelize } from '../db/sequelize.js'
 
 export const ResetToken = sequelize.define('ResetToken', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
-    userId: { type: DataTypes.INTEGER, allowNull: false },
+    userId: { type: DataTypes.BIGINT.UNSIGNED, allowNull: false },
     tokenHash: { type: DataTypes.STRING(255), allowNull: false },
     expiresAt: { type: DataTypes.DATE, allowNull: false },
     usedAt: { type: DataTypes.DATE, allowNull: true }
