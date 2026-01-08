@@ -9,7 +9,10 @@ export async function sendActivationEmail({ to, link }) {
     return
   }
 
-  const from = env.mail.from || 'onboarding@resend.dev'
+  const from = env.mail.from
+  if (!from) {
+    throw new Error('Falta MAIL_FROM (ej: "Consultorio <no-reply@send.consultorio.website>")')
+  }
 
   try {
     const { data, error } = await resend.emails.send({
