@@ -14,6 +14,7 @@ export const listPatients = async (_req, res) => {
             'obraSocialNumero',
             'historialClinico',
             'treatmentPlan',
+            'treatmentPlanItems',
             'studies',
             'historyEntries',
             'balance'
@@ -69,6 +70,7 @@ const basePatientSchema = {
     obraSocialNumero: z.string().min(1).max(80).optional(),
     historialClinico: z.string().max(5000).optional(),
     treatmentPlan: z.string().max(5000).optional(),
+    treatmentPlanItems: z.string().max(20000).optional(),
     studies: z.string().max(5000).optional(),
     historyEntries: z.string().max(20000).optional(),
     balance: z.number().optional(),

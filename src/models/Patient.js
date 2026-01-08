@@ -11,6 +11,7 @@ export const Patient = sequelize.define('Patient', {
     obraSocialNumero: { type: DataTypes.STRING(80), allowNull: true },
     historialClinico: { type: DataTypes.TEXT, allowNull: true },
     treatmentPlan: { type: DataTypes.TEXT, allowNull: true },
+    treatmentPlanItems: { type: DataTypes.TEXT, allowNull: true },
     studies: { type: DataTypes.TEXT, allowNull: true },
     historyEntries: { type: DataTypes.TEXT, allowNull: true },
     balance: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
