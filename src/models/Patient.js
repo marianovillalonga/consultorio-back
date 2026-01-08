@@ -13,6 +13,7 @@ export const Patient = sequelize.define('Patient', {
     treatmentPlan: { type: DataTypes.TEXT, allowNull: true },
     treatmentPlanItems: { type: DataTypes.TEXT, allowNull: true },
     studies: { type: DataTypes.TEXT, allowNull: true },
+    studiesFiles: { type: DataTypes.TEXT, allowNull: true },
     historyEntries: { type: DataTypes.TEXT, allowNull: true },
     balance: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
     payments: { type: DataTypes.JSON, allowNull: true },
