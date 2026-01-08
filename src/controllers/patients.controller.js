@@ -32,7 +32,15 @@ export const getPatient = async (req, res) => {
     const patient = await Patient.findByPk(id)
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
-    res.json({ patient })
+    const json = patient.toJSON()
+    if (json.studiesFiles) {
+        const parsed = parseStudyFiles(json.studiesFiles)
+        if (parsed.ok) {
+            json.studiesFiles = JSON.stringify(stripStudyData(parsed.items))
+        }
+    }
+
+    res.json({ patient: json })
 }
 
 // Turnos recientes de un paciente para mostrar en el detalle
@@ -61,6 +69,18 @@ const paymentSchema = z.object({
     date: z.string().datetime(),
     note: z.string().max(200).optional()
 })
+
+const studyFileSchema = z.object({
+    id: z.string().min(1).max(80),
+    name: z.string().min(1).max(255),
+    mime: z.string().min(1).max(200),
+    data: z.string().optional(),
+    description: z.string().max(500).optional(),
+    createdAt: z.string().min(1).max(40),
+    uploadedBy: z.number().int().optional()
+})
+
+const studyFilesSchema = z.array(studyFileSchema)
 
 const basePatientSchema = {
     fullName: z.string().min(2).max(150),
@@ -108,7 +128,98 @@ export const updatePatient = async (req, res) => {
     const patient = await Patient.findByPk(id)
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
-    await patient.update(parsed.data)
+    const payload = { ...parsed.data }
+    if (payload.studiesFiles !== undefined) {
+        const merged = mergeStudyFiles(payload.studiesFiles, patient.studiesFiles, req.user?.id)
+        if (!merged.ok) return res.status(400).json({ message: merged.error })
+        payload.studiesFiles = merged.value
+    }
+
+    await patient.update(payload)
 
     res.json({ patient })
+}
+
+export const getPatientStudyFile = async (req, res) => {
+    const id = Number(req.params.id)
+    const studyId = String(req.params.studyId || '')
+    if (!id || !studyId) return res.status(400).json({ message: 'Parametros invalidos' })
+
+    const patient = await Patient.findByPk(id)
+    if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
+
+    const parsed = parseStudyFiles(patient.studiesFiles)
+    if (!parsed.ok) return res.status(400).json({ message: parsed.error })
+
+    const item = parsed.items.find((f) => f.id === studyId)
+    if (!item || !item.data) return res.status(404).json({ message: 'Archivo no encontrado' })
+
+    res.json({
+        file: {
+            id: item.id,
+            name: item.name,
+            mime: item.mime,
+            data: item.data,
+            description: item.description || '',
+            createdAt: item.createdAt,
+            uploadedBy: item.uploadedBy || null
+        }
+    })
+}
+
+const parseStudyFiles = (raw) => {
+    if (!raw) return { ok: true, items: [] }
+    try {
+        if (typeof raw === 'string' && raw.trim() === '') return { ok: true, items: [] }
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+        const validated = studyFilesSchema.safeParse(parsed)
+        if (!validated.success) return { ok: false, error: 'studiesFiles invalido' }
+        return { ok: true, items: validated.data }
+    } catch {
+        return { ok: false, error: 'studiesFiles invalido' }
+    }
+}
+
+const stripStudyData = (items) =>
+    items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        mime: item.mime,
+        description: item.description || '',
+        createdAt: item.createdAt,
+        uploadedBy: item.uploadedBy || null
+    }))
+
+const normalizeIsoDate = (value, fallback) => {
+    const date = value ? new Date(value) : null
+    if (date && !Number.isNaN(date.getTime())) return date.toISOString()
+    return fallback || new Date().toISOString()
+}
+
+const mergeStudyFiles = (incomingRaw, existingRaw, userId) => {
+    const incoming = parseStudyFiles(incomingRaw)
+    if (!incoming.ok) return { ok: false, error: incoming.error }
+
+    const existing = parseStudyFiles(existingRaw)
+    const existingItems = existing.ok ? existing.items : []
+    const existingMap = new Map(existingItems.map((item) => [item.id, item]))
+
+    const merged = []
+    for (const item of incoming.items) {
+        const prev = existingMap.get(item.id)
+        const data = item.data && item.data.length > 0 ? item.data : prev?.data
+        if (!data) return { ok: false, error: `Falta data para el archivo ${item.name}` }
+
+        merged.push({
+            id: item.id,
+            name: item.name,
+            mime: item.mime,
+            data,
+            description: item.description || '',
+            createdAt: normalizeIsoDate(item.createdAt, prev?.createdAt),
+            uploadedBy: item.uploadedBy || prev?.uploadedBy || userId || null
+        })
+    }
+
+    return { ok: true, value: JSON.stringify(merged) }
 }
