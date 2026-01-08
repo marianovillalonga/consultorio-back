@@ -6,8 +6,8 @@ const resend = new Resend(env.resend.apiKey)
 export async function sendActivationEmail({ to, link }) {
   const from = env.mail.from || 'Odontologia <no-reply@tudominio.com>'
   await resend.emails.send({
-    from,
-    to,
+    from: 'onboarding@resend.dev',
+    to: 'marianovillalonga94.mv@gmail.com',
     subject: 'Activa tu cuenta',
     html: `
       <div style="font-family: Arial, sans-serif; background:#f3f6ff; padding:24px;">
