@@ -62,7 +62,7 @@ app.use((err, req, res, next) => {
   if (err?.message === 'Not allowed by CORS') {
     return res.status(403).json({ error: 'CORS: origin no permitido' })
   }
-  res.status(500).json({ error: 'Internal Server Error' })
+  res.status(500).json({ error: err?.message || 'Internal Server Error' })
 })
 
 export default app

@@ -135,9 +135,13 @@ export const updatePatient = async (req, res) => {
         payload.studiesFiles = merged.value
     }
 
-    await patient.update(payload)
-
-    res.json({ patient })
+    try {
+        await patient.update(payload)
+        res.json({ patient })
+    } catch (err) {
+        console.error('[patients.update] Error al actualizar', err)
+        res.status(500).json({ message: err?.message || 'No se pudo actualizar el paciente' })
+    }
 }
 
 export const getPatientStudyFile = async (req, res) => {
