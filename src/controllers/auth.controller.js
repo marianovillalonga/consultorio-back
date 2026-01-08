@@ -26,10 +26,14 @@ const registerSchema = z.object({
     fullName: z.string().min(2)
 })
 
+const isProd = process.env.NODE_ENV === 'production'
+const cookieSecure = env.cookie.secure || isProd
+const cookieSameSite = cookieSecure ? 'none' : 'lax'
+
 const cookieOptions = {
     httpOnly: true,
-    sameSite: 'strict',
-    secure: env.cookie.secure,
+    sameSite: cookieSameSite,
+    secure: cookieSecure,
     domain: env.cookie.domain
 }
 
@@ -39,8 +43,8 @@ const setAuthCookies = (res, token, refreshToken) => {
     res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 })
     res.cookie('csrfToken', csrfToken, {
         httpOnly: false,
-        sameSite: 'strict',
-        secure: env.cookie.secure,
+        sameSite: cookieSameSite,
+        secure: cookieSecure,
         domain: env.cookie.domain,
         maxAge: 7 * 24 * 60 * 60 * 1000
     })
@@ -205,3 +209,5 @@ export const resendActivation = async (req, res) => {
     await logAudit({ userId: user.id, action: 'RESEND_ACTIVATION', details: { email: user.email } })
     res.json({ ok: true })
 }
+
+
