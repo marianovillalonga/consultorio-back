@@ -15,10 +15,13 @@ import {
     revokeRefreshToken,
     saveActivationToken,
     verifyActivationToken,
-    generateCsrfToken
+    generateCsrfToken,
+    saveResetToken,
+    verifyResetToken,
+    revokeRefreshTokensByUserId
 } from '../services/auth.service.js'
 import { logAudit } from '../services/audit.service.js'
-import { sendActivationEmail } from '../services/mail.service.js'
+import { sendActivationEmail, sendPasswordResetEmail } from '../services/mail.service.js'
 
 const registerSchema = z.object({
     email: z.string().email(),
@@ -82,6 +85,15 @@ const loginSchema = z.object({
     identifier: z.string().min(3).optional(), // email o dni
     email: z.string().email().optional(),
     password: z.string().min(1)
+})
+
+const forgotSchema = z.object({
+    email: z.string().email()
+})
+
+const resetSchema = z.object({
+    token: z.string().min(10),
+    password: z.string().min(8)
 })
 
 export const login = async (req, res) => {
@@ -207,6 +219,52 @@ export const resendActivation = async (req, res) => {
     }
 
     await logAudit({ userId: user.id, action: 'RESEND_ACTIVATION', details: { email: user.email } })
+    res.json({ ok: true })
+}
+
+export const forgotPassword = async (req, res) => {
+    const parsed = forgotSchema.safeParse(req.body)
+    if (!parsed.success) {
+        return res.status(400).json({ message: 'Datos invalidos', errors: parsed.error.errors })
+    }
+
+    const { email } = parsed.data
+    const user = await getUserByEmail(email)
+    if (user && env.app.frontUrl) {
+        const resetToken = crypto.randomBytes(32).toString('hex')
+        const resetExpires = new Date(Date.now() + env.reset.expiresMinutes * 60 * 1000)
+        await saveResetToken({ userId: user.id, token: resetToken, expiresAt: resetExpires })
+        const link = `${env.app.frontUrl}/reset?token=${resetToken}`
+        await sendPasswordResetEmail({ to: user.email, link })
+        await logAudit({ userId: user.id, action: 'PASSWORD_RESET_REQUEST', details: { email: user.email } })
+    }
+
+    res.json({ ok: true })
+}
+
+export const resetPassword = async (req, res) => {
+    const parsed = resetSchema.safeParse(req.body)
+    if (!parsed.success) {
+        return res.status(400).json({ message: 'Datos invalidos', errors: parsed.error.errors })
+    }
+
+    const { token, password } = parsed.data
+    if (!validatePasswordStrength(password)) {
+        return res.status(400).json({ message: 'La contrasena es debil' })
+    }
+
+    const row = await verifyResetToken(token)
+    if (!row) return res.status(400).json({ message: 'Token invalido' })
+
+    const user = await User.findByPk(row.userId)
+    if (!user) return res.status(404).json({ message: 'Usuario no encontrado' })
+
+    const passwordHash = await hashPassword(password)
+    await user.update({ passwordHash })
+    await row.update({ usedAt: new Date() })
+    await revokeRefreshTokensByUserId(user.id)
+    await logAudit({ userId: user.id, action: 'PASSWORD_RESET', details: { email: user.email } })
+
     res.json({ ok: true })
 }
 

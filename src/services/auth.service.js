@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import { env } from '../config/env.js'
-import { ActivationToken, RefreshToken, User } from '../models/index.js'
+import { ActivationToken, RefreshToken, ResetToken, User } from '../models/index.js'
 
 export const hashPassword = async (plain) => bcrypt.hash(plain, 10)
 export const verifyPassword = async (plain, hash) => bcrypt.compare(plain, hash)
@@ -48,6 +48,10 @@ export const hashActivationToken = (token) => {
     return crypto.createHash('sha256').update(token).digest('hex')
 }
 
+export const hashResetToken = (token) => {
+    return crypto.createHash('sha256').update(token).digest('hex')
+}
+
 export const saveActivationToken = async ({ userId, token, expiresAt }) => {
     const tokenHash = hashActivationToken(token)
     return ActivationToken.create({ userId, tokenHash, expiresAt })
@@ -64,6 +68,11 @@ export const verifyActivationToken = async (token) => {
 export const saveRefreshToken = async ({ userId, token, expiresAt }) => {
     const tokenHash = hashRefreshToken(token)
     return RefreshToken.create({ userId, tokenHash, expiresAt })
+}
+
+export const saveResetToken = async ({ userId, token, expiresAt }) => {
+    const tokenHash = hashResetToken(token)
+    return ResetToken.create({ userId, tokenHash, expiresAt })
 }
 
 export const revokeRefreshToken = async (token) => {
@@ -83,4 +92,19 @@ export const verifyRefreshToken = async (token) => {
         return null
     }
     return row
+}
+
+export const verifyResetToken = async (token) => {
+    const tokenHash = hashResetToken(token)
+    const row = await ResetToken.findOne({ where: { tokenHash, usedAt: null } })
+    if (!row) return null
+    if (row.expiresAt < new Date()) return null
+    return row
+}
+
+export const revokeRefreshTokensByUserId = async (userId) => {
+    await RefreshToken.update(
+        { revokedAt: new Date() },
+        { where: { userId, revokedAt: null } }
+    )
 }

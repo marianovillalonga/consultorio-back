@@ -1,6 +1,16 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
-import { activateAccount, login, me, refresh, registerPatient, logout, resendActivation } from '../controllers/auth.controller.js'
+import {
+    activateAccount,
+    login,
+    me,
+    refresh,
+    registerPatient,
+    logout,
+    resendActivation,
+    forgotPassword,
+    resetPassword
+} from '../controllers/auth.controller.js'
 import { authRequired } from '../middlewares/auth.js'
 
 const router = Router()
@@ -19,5 +29,7 @@ router.post('/refresh', refresh)
 router.post('/logout', authRequired, logout)
 router.get('/activate', activateAccount)
 router.post('/resend-activation', authLimiter, resendActivation)
+router.post('/forgot-password', authLimiter, forgotPassword)
+router.post('/reset-password', authLimiter, resetPassword)
 
 export default router

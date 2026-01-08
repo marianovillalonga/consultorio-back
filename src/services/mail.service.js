@@ -44,3 +44,45 @@ export async function sendActivationEmail({ to, link }) {
     throw e
   }
 }
+
+export async function sendPasswordResetEmail({ to, link }) {
+  if (!env.resend.apiKey) {
+    console.error('Falta RESEND_API_KEY')
+    return
+  }
+
+  const from = env.mail.from
+  if (!from) {
+    throw new Error('Falta MAIL_FROM (ej: "Consultorio <no-reply@send.consultorio.website>")')
+  }
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from,
+      to,
+      subject: 'Restablece tu contrasena',
+      html: `
+        <div style="font-family: Arial, sans-serif; background:#f3f6ff; padding:24px;">
+          <div style="max-width:520px; margin:0 auto; background:#ffffff; border-radius:12px; padding:24px; border:1px solid #e3e9f7;">
+            <h2 style="margin:0 0 10px; color:#0b1d3a;">Restablece tu contrasena</h2>
+            <p style="margin:0 0 18px; color:#4a5a7a;">Para elegir una nueva contrasena, hace click en el boton:</p>
+            <a href="${link}" style="display:inline-block; background:#2f6bf0; color:#fff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:700;">
+              Cambiar contrasena
+            </a>
+            <p style="margin-top:16px; color:#8a96b0; font-size:12px;">Si no solicitaste este cambio, ignora este mensaje.</p>
+          </div>
+        </div>`
+    })
+
+    if (error) {
+      console.error('Resend error:', error)
+      throw error
+    }
+
+    console.log('Email enviado. id:', data?.id)
+    return data?.id
+  } catch (e) {
+    console.error('Fallo al enviar email:', e?.message || e)
+    throw e
+  }
+}

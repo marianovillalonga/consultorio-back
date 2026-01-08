@@ -20,6 +20,9 @@ export const env = {
         secret: process.env.REFRESH_SECRET,
         expiresIn: process.env.REFRESH_EXPIRES_IN
     },
+    reset: {
+        expiresMinutes: Number(process.env.RESET_EXPIRES_MINUTES || 60)
+    },
     cookie: {
         secure: process.env.COOKIE_SECURE === 'true',
         domain: process.env.COOKIE_DOMAIN || undefined
@@ -41,4 +44,3 @@ export const env = {
         expiresMinutes: Number(process.env.ACTIVATION_EXPIRES_MINUTES || 1440)
     }
 }
-
