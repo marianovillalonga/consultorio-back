@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { Op } from 'sequelize'
 import { Appointment, Dentist, Patient, User } from '../models/index.js'
 import { getAvailabilityForDate, hasCollision, isBlocked } from '../services/appointments.service.js'
 
@@ -21,6 +22,17 @@ const createAppointmentSchema = z.object({
     endAt: z.string().datetime(),
     reason: z.string().max(200).optional()
 })
+
+const getWeekRange = (date) => {
+    const start = new Date(date)
+    start.setHours(0, 0, 0, 0)
+    const day = start.getDay()
+    const diff = (day + 6) % 7
+    start.setDate(start.getDate() - diff)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 7)
+    return { start, end }
+}
 
 export const createAppointment = async (req, res) => {
     const data = createAppointmentSchema.parse(req.body)
@@ -55,6 +67,18 @@ export const createAppointment = async (req, res) => {
 
     if (await hasCollision({ dentistId: data.dentistId, startAt, endAt })) {
         return res.status(409).json({ message: 'Turno ya ocupado' })
+    }
+
+    const week = getWeekRange(startAt)
+    const existingWeek = await Appointment.findOne({
+        where: {
+            patientId: data.patientId,
+            startAt: { [Op.gte]: week.start, [Op.lt]: week.end },
+            status: { [Op.ne]: 'CANCELADO' }
+        }
+    })
+    if (existingWeek) {
+        return res.status(409).json({ message: 'El paciente ya tiene un turno en esta semana' })
     }
 
     const createdByRole = req.user.role === 'PACIENTE' ? 'PACIENTE' : req.user.role
@@ -194,6 +218,19 @@ export const rescheduleAppointment = async (req, res) => {
     }
     if (await hasCollision({ dentistId: appt.dentistId, startAt, endAt })) {
         return res.status(409).json({ message: 'Turno ya ocupado' })
+    }
+
+    const week = getWeekRange(startAt)
+    const existingWeek = await Appointment.findOne({
+        where: {
+            id: { [Op.ne]: appt.id },
+            patientId: appt.patientId,
+            startAt: { [Op.gte]: week.start, [Op.lt]: week.end },
+            status: { [Op.ne]: 'CANCELADO' }
+        }
+    })
+    if (existingWeek) {
+        return res.status(409).json({ message: 'El paciente ya tiene un turno en esta semana' })
     }
 
     appt.startAt = startAt
