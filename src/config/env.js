@@ -27,14 +27,18 @@ export const env = {
     app: {
         frontUrl: process.env.FRONT_URL
     },
+    resend: {
+        apiKey: process.env.RESEND_API_KEY
+    },
     mail: {
         host: process.env.SMTP_HOST,
         port: Number(process.env.SMTP_PORT),
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
-        from: process.env.SMTP_FROM
+        from: process.env.MAIL_FROM || process.env.SMTP_FROM
     },
     activation: {
         expiresMinutes: Number(process.env.ACTIVATION_EXPIRES_MINUTES || 1440)
     }
 }
+
