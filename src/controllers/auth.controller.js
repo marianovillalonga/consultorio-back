@@ -51,6 +51,8 @@ const setAuthCookies = (res, token, refreshToken) => {
         domain: env.cookie.domain,
         maxAge: 7 * 24 * 60 * 60 * 1000
     })
+    res.set('X-CSRF-Token', csrfToken)
+    return csrfToken
 }
 
 export const registerPatient = async (req, res) => {
@@ -133,9 +135,9 @@ export const login = async (req, res) => {
         token: refreshToken,
         expiresAt: new Date(refreshPayload.exp * 1000)
     })
-    setAuthCookies(res, token, refreshToken)
+    const csrfToken = setAuthCookies(res, token, refreshToken)
     await logAudit({ userId: user.id, action: 'LOGIN', details: { email: user.email } })
-    res.json({ user: { id: user.id, role: user.role, email: user.email } })
+    res.json({ user: { id: user.id, role: user.role, email: user.email }, csrfToken })
 }
 
 export const me = async (req, res) => {
@@ -169,8 +171,8 @@ export const refresh = async (req, res) => {
         expiresAt: new Date(refreshPayload.exp * 1000)
     })
     await revokeRefreshToken(token)
-    setAuthCookies(res, nextAccess, nextRefresh)
-    res.json({ user: { id: user.id, role: user.role, email: user.email } })
+    const csrfToken = setAuthCookies(res, nextAccess, nextRefresh)
+    res.json({ user: { id: user.id, role: user.role, email: user.email }, csrfToken })
 }
 
 export const logout = async (req, res) => {
@@ -267,5 +269,6 @@ export const resetPassword = async (req, res) => {
 
     res.json({ ok: true })
 }
+
 
 
