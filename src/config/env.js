@@ -35,7 +35,7 @@ export const env = {
         port: Number(process.env.SMTP_PORT),
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
-        from: process.env.MAIL_FROM || process.env.SMTP_FROM
+        from: process.env.MAIL_FROM
     },
     activation: {
         expiresMinutes: Number(process.env.ACTIVATION_EXPIRES_MINUTES || 1440)
