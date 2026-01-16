@@ -1,4 +1,4 @@
-import { Router } from 'express'
+﻿import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import {
     activateAccount,
@@ -17,19 +17,44 @@ const router = Router()
 
 const authLimiter = rateLimit({
     windowMs: 10 * 60 * 1000,
-    limit: 20,
+    limit: 60,
+    standardHeaders: true,
+    legacyHeaders: false
+})
+
+const loginLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados intentos, intenta mas tarde' },
+    keyGenerator: (req) => `${req.ip}:${String(req.body?.identifier || req.body?.email || '')}`
+})
+
+const resetLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados intentos, intenta mas tarde' },
+    keyGenerator: (req) => `${req.ip}:${String(req.body?.email || '')}`
+})
+
+const refreshLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    limit: 30,
     standardHeaders: true,
     legacyHeaders: false
 })
 
 router.post('/register', authLimiter, registerPatient)
-router.post('/login', authLimiter, login)
+router.post('/login', loginLimiter, login)
 router.get('/me', authRequired, me)
-router.post('/refresh', refresh)
+router.post('/refresh', refreshLimiter, refresh)
 router.post('/logout', authRequired, logout)
 router.get('/activate', activateAccount)
-router.post('/resend-activation', authLimiter, resendActivation)
-router.post('/forgot-password', authLimiter, forgotPassword)
-router.post('/reset-password', authLimiter, resetPassword)
+router.post('/resend-activation', resetLimiter, resendActivation)
+router.post('/forgot-password', resetLimiter, forgotPassword)
+router.post('/reset-password', resetLimiter, resetPassword)
 
 export default router

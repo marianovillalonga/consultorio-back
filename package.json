@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "back",
   "version": "1.0.0",
   "main": "src/server.js",
@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "seed:demo": "node src/scripts/seedDemo.js"
+    "seed:demo": "node src/scripts/seedDemo.js",
+    "migrate": "sequelize-cli db:migrate",
+    "migrate:undo": "sequelize-cli db:migrate:undo",
+    "migrate:undo:all": "sequelize-cli db:migrate:undo:all"
   },
   "keywords": [],
   "author": "Mariano Villalonga",
@@ -28,6 +31,7 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "sequelize-cli": "^6.6.2"
   }
 }
