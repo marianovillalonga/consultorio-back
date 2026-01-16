@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import { ObraSocial } from '../models/index.js'
+import { scrapeAodslObrasSociales } from '../services/aodslScraper.js'
 
 const arancelSchema = z.object({
     codigo: z.string().min(1).max(50),
     descripcion: z.string().min(1).max(300),
     vigenciaDesde: z.string().optional(),
+    vigenciaHasta: z.string().optional(),
     arancelTotal: z.number().nonnegative().optional(),
     copago: z.number().nonnegative().optional()
 })
@@ -18,7 +20,7 @@ const obraSchema = z.object({
     notas: z.string().max(2000).optional(),
     aranceles: arancelSchema.array().optional(),
     normasTrabajoFileName: z.string().max(200).optional(),
-    normasTrabajoFileData: z.string().max(5000000).optional(), // base64
+    normasTrabajoFileData: z.string().max(5000000).optional(),
     normasFacturacionFileName: z.string().max(200).optional(),
     normasFacturacionFileData: z.string().max(5000000).optional()
 })
@@ -53,4 +55,19 @@ export const deleteObra = async (req, res) => {
     if (!obra) return res.status(404).json({ message: 'Obra social no encontrada' })
     await obra.destroy()
     res.json({ ok: true })
+}
+
+export const scrapeObras = async (_req, res) => {
+    const username = process.env.scrappingUsu || process.env.SCRAPPING_USU
+    const password = process.env.scrappingPass || process.env.SCRAPPING_PASS
+    if (!username || !password) {
+        return res.status(400).json({ message: 'Faltan credenciales de scrapping' })
+    }
+    try {
+        const result = await scrapeAodslObrasSociales({ username, password })
+        res.json({ ok: true, ...result })
+    } catch (err) {
+        const e = err instanceof Error ? err : new Error('Error al scrappear obras sociales')
+        res.status(500).json({ message: e.message })
+    }
 }
