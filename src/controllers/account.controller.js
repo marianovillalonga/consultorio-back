@@ -43,7 +43,7 @@ const findDentistByUser = async (user) => {
     return Dentist.findOne({ where: { userId: user.id } })
 }
 
-const VIEW_KEYS = ['TURNOS', 'PACIENTES', 'OBRAS_SOCIALES']
+const VIEW_KEYS = ['TURNOS', 'PACIENTES', 'OBRAS_SOCIALES', 'PAGOS']
 
 export const getPermissions = async (req, res) => {
     if (req.user.role === 'ADMIN') {

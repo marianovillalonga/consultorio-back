@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { User, UserPermission } from '../models/index.js'
 import { logAudit } from '../services/audit.service.js'
 
-const VIEW_KEYS = ['TURNOS', 'PACIENTES', 'OBRAS_SOCIALES']
+const VIEW_KEYS = ['TURNOS', 'PACIENTES', 'OBRAS_SOCIALES', 'PAGOS']
 
 const permissionSchema = z.object({
     viewKey: z.enum(VIEW_KEYS),

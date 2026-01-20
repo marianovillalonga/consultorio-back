@@ -8,7 +8,7 @@ router.get(
     '/payments',
     authRequired,
     requireRole('ODONTOLOGO', 'ADMIN', 'RECEPCION'),
-    requireViewPermission('PACIENTES', 'read'),
+    requireViewPermission('PAGOS', 'read'),
     paymentsReport
 )
 
