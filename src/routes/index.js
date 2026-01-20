@@ -10,7 +10,6 @@ import obrasRoutes from './obrasSociales.routes.js'
 import adminUsersRoutes from './adminUsers.routes.js'
 import reportsRoutes from './reports.routes.js'
 import adminMetricsRoutes from './adminMetrics.routes.js'
-import publicRoutes from './public.routes.js'
 
 const router = Router()
 
@@ -25,6 +24,5 @@ router.use('/obras-sociales', obrasRoutes)
 router.use('/admin/users', adminUsersRoutes)
 router.use('/admin/metrics', adminMetricsRoutes)
 router.use('/reports', reportsRoutes)
-router.use('/public', publicRoutes)
 
 export default router
