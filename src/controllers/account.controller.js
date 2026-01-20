@@ -10,11 +10,29 @@ const patientUpdateSchema = z.object({
 })
 
 const dentistUpdateSchema = z.object({
+    fullName: z.string().min(2).max(150).optional(),
+    photoUrl: z.string().max(255).optional(),
+    bio: z.string().max(2000).optional(),
+    specialties: z.union([z.string(), z.array(z.string().min(2).max(120)).max(10)]).optional(),
     license: z.string().min(3).max(80).optional(),
     specialty: z.string().min(2).max(120).optional(),
     email: z.string().email().optional(),
     password: z.string().min(6).max(120).optional()
 })
+
+const normalizeSpecialties = (value) => {
+    if (!value) return []
+    if (Array.isArray(value)) {
+        return value.map((s) => String(s).trim()).filter(Boolean)
+    }
+    if (typeof value === 'string') {
+        return value
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+    }
+    return []
+}
 
 const findPatientByUser = async (user) => {
     // No hay clave foranea, se busca por email
@@ -23,6 +41,23 @@ const findPatientByUser = async (user) => {
 
 const findDentistByUser = async (user) => {
     return Dentist.findOne({ where: { userId: user.id } })
+}
+
+const serializeDentist = (dentist) => {
+    const json = dentist.toJSON ? dentist.toJSON() : dentist
+    let specialties = []
+    if (json.specialties) {
+        try {
+            const parsed = JSON.parse(json.specialties)
+            if (Array.isArray(parsed)) specialties = parsed
+        } catch {
+            specialties = normalizeSpecialties(json.specialties)
+        }
+    }
+    if (!specialties.length && json.specialty) {
+        specialties = [json.specialty]
+    }
+    return { ...json, specialties }
 }
 
 export const getProfile = async (req, res) => {
@@ -37,7 +72,7 @@ export const getProfile = async (req, res) => {
     if (role === 'ADMIN' || role === 'ODONTOLOGO') {
         const dentist = await findDentistByUser({ id })
         if (!dentist) return res.status(404).json({ message: 'Dentista no encontrado' })
-        return res.json({ type: 'dentist', data: dentist })
+        return res.json({ type: 'dentist', data: serializeDentist(dentist) })
     }
 
     return res.status(403).json({ message: 'Rol sin perfil configurado' })
@@ -67,6 +102,11 @@ export const updateProfile = async (req, res) => {
         if (!dentist) return res.status(404).json({ message: 'Dentista no encontrado' })
         const parsed = dentistUpdateSchema.safeParse(req.body)
         if (!parsed.success) return res.status(400).json({ message: 'Datos invalidos', errors: parsed.error.errors })
+        const updateData = { ...parsed.data }
+        if (parsed.data.specialties !== undefined) {
+            const specialties = normalizeSpecialties(parsed.data.specialties)
+            updateData.specialties = specialties.length ? JSON.stringify(specialties) : null
+        }
         if (parsed.data.email) {
             const exists = await getUserByEmail(parsed.data.email)
             if (exists && exists.id !== req.user.id) {
@@ -81,8 +121,8 @@ export const updateProfile = async (req, res) => {
             const passwordHash = await hashPassword(parsed.data.password)
             await User.update({ passwordHash }, { where: { id } })
         }
-        await dentist.update(parsed.data)
-        return res.json({ type: 'dentist', data: dentist })
+        await dentist.update(updateData)
+        return res.json({ type: 'dentist', data: serializeDentist(dentist) })
     }
 
     return res.status(403).json({ message: 'Rol sin perfil configurado' })

@@ -10,10 +10,10 @@ const ensureUser = async ({ email, password, role }) => {
     return User.create({ email, passwordHash, role })
 }
 
-const ensureDentist = async ({ userId, license, specialty }) => {
+const ensureDentist = async ({ userId, fullName, photoUrl, bio, specialties, license, specialty }) => {
     const existing = await Dentist.findOne({ where: { userId } })
     if (existing) return existing
-    return Dentist.create({ userId, license, specialty })
+    return Dentist.create({ userId, fullName, photoUrl, bio, specialties, license, specialty })
 }
 
 const ensurePatient = async ({ fullName, email }) => {
@@ -37,7 +37,15 @@ const main = async () => {
     const dentUser = await ensureUser({ email: 'dentist@demo.com', password: 'secret123', role: 'ODONTOLOGO' })
     const patientUser = await ensureUser({ email: 'paciente@demo.com', password: 'patient123', role: 'PACIENTE' })
 
-    const dentist = await ensureDentist({ userId: dentUser.id, license: 'MAT-123', specialty: 'Ortodoncia' })
+    const dentist = await ensureDentist({
+        userId: dentUser.id,
+        fullName: 'Doctor Demo',
+        photoUrl: 'https://images.example.com/dentist-demo.jpg',
+        bio: 'Especialista en ortodoncia y armonizacion facial.',
+        specialties: JSON.stringify(['Ortodoncia', 'Estetica dental']),
+        license: 'MAT-123',
+        specialty: 'Ortodoncia'
+    })
     await ensurePatient({ fullName: 'Paciente Demo', email: patientUser.email })
     await setAvailability(dentist.id)
 

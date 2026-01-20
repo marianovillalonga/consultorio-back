@@ -67,7 +67,8 @@ const paymentSchema = z.object({
     amount: z.number(),
     method: z.string().min(2).max(50),
     date: z.string().datetime(),
-    note: z.string().max(200).optional()
+    note: z.string().max(200).optional(),
+    serviceAmount: z.number().optional()
 })
 
 const studyFileSchema = z.object({

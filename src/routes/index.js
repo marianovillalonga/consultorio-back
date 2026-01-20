@@ -8,6 +8,7 @@ import blocksRoutes from './blocks.routes.js'
 import patientsRoutes from './patients.routes.js'
 import obrasRoutes from './obrasSociales.routes.js'
 import adminUsersRoutes from './adminUsers.routes.js'
+import reportsRoutes from './reports.routes.js'
 
 const router = Router()
 
@@ -20,5 +21,6 @@ router.use('/blocks', blocksRoutes)
 router.use('/patients', patientsRoutes)
 router.use('/obras-sociales', obrasRoutes)
 router.use('/admin/users', adminUsersRoutes)
+router.use('/reports', reportsRoutes)
 
 export default router
