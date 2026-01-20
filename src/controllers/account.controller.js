@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Dentist, Patient, User } from '../models/index.js'
+import { Dentist, Patient, User, UserPermission } from '../models/index.js'
 import { getUserByEmail, hashPassword, validatePasswordStrength } from '../services/auth.service.js'
 
 const patientUpdateSchema = z.object({
@@ -41,6 +41,35 @@ const findPatientByUser = async (user) => {
 
 const findDentistByUser = async (user) => {
     return Dentist.findOne({ where: { userId: user.id } })
+}
+
+const VIEW_KEYS = ['TURNOS', 'PACIENTES', 'OBRAS_SOCIALES']
+
+export const getPermissions = async (req, res) => {
+    if (req.user.role === 'ADMIN') {
+        return res.json({
+            permissions: VIEW_KEYS.map((viewKey) => ({
+                viewKey,
+                canRead: true,
+                canWrite: true
+            }))
+        })
+    }
+
+    if (req.user.role !== 'ODONTOLOGO') {
+        return res.json({ permissions: [] })
+    }
+
+    const rows = await UserPermission.findAll({ where: { userId: req.user.id } })
+    const merged = VIEW_KEYS.map((viewKey) => {
+        const row = rows.find((r) => r.viewKey === viewKey)
+        return {
+            viewKey,
+            canRead: row?.canRead || false,
+            canWrite: row?.canWrite || false
+        }
+    })
+    res.json({ permissions: merged })
 }
 
 const serializeDentist = (dentist) => {
