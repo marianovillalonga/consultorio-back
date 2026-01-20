@@ -27,7 +27,7 @@ const computeBalance = (payments) =>
     payments.reduce((acc, p) => {
         const svc = Number(p?.serviceAmount || 0) || 0
         const paid = Number(p?.amount || 0) || 0
-        return acc + (svc - paid)
+        return acc + (paid - svc)
     }, 0)
 
 export const paymentsReport = async (req, res) => {
@@ -54,8 +54,8 @@ export const paymentsReport = async (req, res) => {
             patientName: patient.fullName,
             balance
         })
-        if (balance > 0) patientsWithDebt += 1
-        if (balance < 0) patientsWithCredit += 1
+        if (balance < 0) patientsWithDebt += 1
+        if (balance > 0) patientsWithCredit += 1
 
         for (const payment of list) {
             const dateValue = payment?.date ? new Date(payment.date) : null
