@@ -30,7 +30,13 @@ export const requireRole = (...roles) => (req, res, next) => {
 export const requireViewPermission = (viewKey, access = 'read') => async (req, res, next) => {
     if (!req.user) return res.status(401).json({ message: 'No autenticado' })
     if (req.user.role === 'ADMIN') return next()
-    if (req.user.role !== 'ODONTOLOGO') return next()
+    if (req.user.role === 'PACIENTE') {
+        if (viewKey === 'TURNOS') return next()
+        return res.status(403).json({ message: 'Sin permisos' })
+    }
+    if (req.user.role !== 'ODONTOLOGO') {
+        return res.status(403).json({ message: 'Sin permisos' })
+    }
 
     const perm = await UserPermission.findOne({ where: { userId: req.user.id, viewKey } })
     const canRead = perm?.canRead || perm?.canWrite || false
