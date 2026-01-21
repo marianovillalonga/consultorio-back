@@ -33,15 +33,26 @@ const envSchema = z.object({
     COOKIE_DOMAIN: z.preprocess(emptyToUndefined, z.string().optional()),
     FRONT_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
     RESEND_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
-    SMTP_HOST: z.string().min(1),
-    SMTP_PORT: z.preprocess(stringToNumber, z.number().int().positive()),
-    SMTP_USER: z.string().min(1),
-    SMTP_PASS: z.string().min(1),
+    SMTP_HOST: z.preprocess(emptyToUndefined, z.string().optional()),
+    SMTP_PORT: z.preprocess(stringToNumber, z.number().int().positive().optional()),
+    SMTP_USER: z.preprocess(emptyToUndefined, z.string().optional()),
+    SMTP_PASS: z.preprocess(emptyToUndefined, z.string().optional()),
     MAIL_FROM: z.string().min(1),
     ACTIVATION_EXPIRES_MINUTES: z.preprocess(
         stringToNumber,
         z.number().int().positive().default(1440)
     )
+}).superRefine((data, ctx) => {
+    const hasResend = Boolean(data.RESEND_API_KEY)
+    const smtpValues = [data.SMTP_HOST, data.SMTP_PORT, data.SMTP_USER, data.SMTP_PASS]
+    const hasSmtp = smtpValues.every(Boolean)
+
+    if (!hasResend && !hasSmtp) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Debe configurar RESEND_API_KEY o SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS'
+        })
+    }
 })
 
 const parsed = envSchema.safeParse(process.env)

@@ -7,6 +7,9 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "seed:demo": "node src/scripts/seedDemo.js",
+    "test": "node --test --test-sequential",
+    "test:smoke": "node --test --test-sequential tests/smoke",
+    "test:e2e": "cross-env TEST_E2E=true node --test --test-sequential tests/e2e",
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:undo:all": "sequelize-cli db:migrate:undo:all"
@@ -33,7 +36,9 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "nodemon": "^3.1.11",
-    "sequelize-cli": "^6.6.2"
+    "sequelize-cli": "^6.6.2",
+    "supertest": "^7.0.0"
   }
 }

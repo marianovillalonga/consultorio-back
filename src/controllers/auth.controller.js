@@ -171,7 +171,18 @@ export const refresh = async (req, res) => {
     if (!stored) {
         try {
             const payload = jwt.verify(token, env.refresh.secret)
-            if (payload?.sub) await revokeRefreshTokensByUserId(payload.sub)
+            if (payload?.sub) {
+                await revokeRefreshTokensByUserId(payload.sub)
+                await logAudit({
+                    userId: payload.sub,
+                    action: 'REFRESH_REUSE',
+                    details: { ip: req.ip, ua: req.headers['user-agent'] || '' }
+                })
+                console.warn('[auth.refresh] Refresh token reutilizado', {
+                    userId: payload.sub,
+                    ip: req.ip
+                })
+            }
         } catch {}
         return res.status(401).json({ message: 'Refresh invalido' })
     }
