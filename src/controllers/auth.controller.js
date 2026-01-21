@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import { User, Patient } from '../models/index.js'
 import { env } from '../config/env.js'
+import { sequelize } from '../db/sequelize.js'
 import {
     getUserByEmail,
     hashPassword,
@@ -70,17 +71,35 @@ export const registerPatient = async (req, res) => {
 
     const passwordHash = await hashPassword(data.password)
 
-    const user = await User.create({ email: data.email, passwordHash, role: 'PACIENTE', activeStatus: false })
-    const patient = await Patient.create({ fullName: data.fullName, email: data.email })
-    const activationToken = crypto.randomBytes(32).toString('hex')
-    const activationExpires = new Date(Date.now() + env.activation.expiresMinutes * 60 * 1000)
-    await saveActivationToken({ userId: user.id, token: activationToken, expiresAt: activationExpires })
-    if (env.app.frontUrl) {
-        const link = `${env.app.frontUrl}/activar?token=${activationToken}`
-        await sendActivationEmail({ to: user.email, link })
+    const tx = await sequelize.transaction()
+    try {
+        const user = await User.create(
+            { email: data.email, passwordHash, role: 'PACIENTE', activeStatus: false },
+            { transaction: tx }
+        )
+        const patient = await Patient.create(
+            { fullName: data.fullName, email: data.email },
+            { transaction: tx }
+        )
+        const activationToken = crypto.randomBytes(32).toString('hex')
+        const activationExpires = new Date(Date.now() + env.activation.expiresMinutes * 60 * 1000)
+        await saveActivationToken({
+            userId: user.id,
+            token: activationToken,
+            expiresAt: activationExpires,
+            transaction: tx
+        })
+        await tx.commit()
+        if (env.app.frontUrl) {
+            const link = `${env.app.frontUrl}/activar?token=${activationToken}`
+            await sendActivationEmail({ to: user.email, link })
+        }
+        await logAudit({ userId: user.id, action: 'REGISTER', details: { email: user.email } })
+        res.status(201).json({ user: { id: user.id, role: user.role, email: user.email }, patient })
+    } catch (err) {
+        await tx.rollback()
+        throw err
     }
-    await logAudit({ userId: user.id, action: 'REGISTER', details: { email: user.email } })
-    res.status(201).json({ user: { id: user.id, role: user.role, email: user.email }, patient })
 }
 
 const loginSchema = z.object({
@@ -149,7 +168,13 @@ export const refresh = async (req, res) => {
     if (!token) return res.status(401).json({ message: 'Refresh requerido' })
 
     const stored = await verifyRefreshToken(token)
-    if (!stored) return res.status(401).json({ message: 'Refresh invalido' })
+    if (!stored) {
+        try {
+            const payload = jwt.verify(token, env.refresh.secret)
+            if (payload?.sub) await revokeRefreshTokensByUserId(payload.sub)
+        } catch {}
+        return res.status(401).json({ message: 'Refresh invalido' })
+    }
 
     let payload = null
     try {

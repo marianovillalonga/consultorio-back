@@ -52,9 +52,13 @@ export const hashResetToken = (token) => {
     return crypto.createHash('sha256').update(token).digest('hex')
 }
 
-export const saveActivationToken = async ({ userId, token, expiresAt }) => {
+export const saveActivationToken = async ({ userId, token, expiresAt, transaction } = {}) => {
     const tokenHash = hashActivationToken(token)
-    return ActivationToken.create({ userId, tokenHash, expiresAt })
+    await ActivationToken.update(
+        { usedAt: new Date() },
+        { where: { userId, usedAt: null }, transaction }
+    )
+    return ActivationToken.create({ userId, tokenHash, expiresAt }, { transaction })
 }
 
 export const verifyActivationToken = async (token) => {
@@ -70,9 +74,13 @@ export const saveRefreshToken = async ({ userId, token, expiresAt }) => {
     return RefreshToken.create({ userId, tokenHash, expiresAt })
 }
 
-export const saveResetToken = async ({ userId, token, expiresAt }) => {
+export const saveResetToken = async ({ userId, token, expiresAt, transaction } = {}) => {
     const tokenHash = hashResetToken(token)
-    return ResetToken.create({ userId, tokenHash, expiresAt })
+    await ResetToken.update(
+        { usedAt: new Date() },
+        { where: { userId, usedAt: null }, transaction }
+    )
+    return ResetToken.create({ userId, tokenHash, expiresAt }, { transaction })
 }
 
 export const revokeRefreshToken = async (token) => {
