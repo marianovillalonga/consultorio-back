@@ -6,7 +6,20 @@
     "description": "API para gestion de consultorio odontologico."
   },
   "servers": [
-    { "url": "http://localhost:3000/api", "description": "Local" }
+    { "url": "http://localhost:3000/api", "description": "Local API" }
+  ],
+  "tags": [
+    { "name": "auth" },
+    { "name": "account" },
+    { "name": "appointments" },
+    { "name": "availability" },
+    { "name": "blocks" },
+    { "name": "dentists" },
+    { "name": "patients" },
+    { "name": "obras-sociales" },
+    { "name": "admin" },
+    { "name": "reports" },
+    { "name": "health" }
   ],
   "components": {
     "securitySchemes": {
@@ -20,12 +33,292 @@
         "scheme": "bearer",
         "bearerFormat": "JWT"
       }
+    },
+    "parameters": {
+      "csrfHeader": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string" }
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" },
+          "errors": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "OkResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string", "enum": ["ADMIN", "ODONTOLOGO", "RECEPCION", "PACIENTE"] }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" },
+          "csrfToken": { "type": "string" },
+          "patient": { "$ref": "#/components/schemas/Patient" }
+        }
+      },
+      "Permission": {
+        "type": "object",
+        "properties": {
+          "viewKey": { "type": "string", "enum": ["TURNOS", "PACIENTES", "OBRAS_SOCIALES", "PAGOS"] },
+          "canRead": { "type": "boolean" },
+          "canWrite": { "type": "boolean" }
+        }
+      },
+      "Dentist": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "userId": { "type": "integer" },
+          "fullName": { "type": "string", "nullable": true },
+          "photoUrl": { "type": "string", "nullable": true },
+          "bio": { "type": "string", "nullable": true },
+          "specialties": { "type": "array", "items": { "type": "string" } },
+          "specialty": { "type": "string", "nullable": true },
+          "license": { "type": "string", "nullable": true },
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "Patient": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "fullName": { "type": "string" },
+          "dni": { "type": "string", "nullable": true },
+          "phone": { "type": "string", "nullable": true },
+          "email": { "type": "string", "format": "email", "nullable": true },
+          "obraSocial": { "type": "string", "nullable": true },
+          "obraSocialNumero": { "type": "string", "nullable": true },
+          "historialClinico": { "type": "string", "nullable": true },
+          "treatmentPlan": { "type": "string", "nullable": true },
+          "treatmentPlanItems": { "type": "string", "nullable": true },
+          "studies": { "type": "string", "nullable": true },
+          "studiesFiles": { "type": "string", "nullable": true },
+          "historyEntries": { "type": "string", "nullable": true },
+          "balance": { "type": "number", "format": "double" },
+          "payments": { "type": "array", "items": { "$ref": "#/components/schemas/PaymentRecord" } },
+          "odontograma": { "type": "string", "nullable": true }
+        }
+      },
+      "PaymentRecord": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "number" },
+          "method": { "type": "string" },
+          "date": { "type": "string", "format": "date-time" },
+          "note": { "type": "string", "nullable": true },
+          "serviceAmount": { "type": "number", "nullable": true }
+        }
+      },
+      "Appointment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "dentistId": { "type": "integer" },
+          "patientId": { "type": "integer" },
+          "startAt": { "type": "string", "format": "date-time" },
+          "endAt": { "type": "string", "format": "date-time" },
+          "status": { "type": "string" },
+          "reason": { "type": "string", "nullable": true },
+          "createdByRole": { "type": "string", "nullable": true },
+          "dentist": { "$ref": "#/components/schemas/Dentist" },
+          "patient": { "$ref": "#/components/schemas/Patient" }
+        }
+      },
+      "AvailabilitySlot": {
+        "type": "object",
+        "properties": {
+          "startAt": { "type": "string", "format": "date-time" },
+          "endAt": { "type": "string", "format": "date-time" },
+          "available": { "type": "boolean" }
+        }
+      },
+      "AvailabilityRow": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "dentistId": { "type": "integer" },
+          "weekday": { "type": "integer" },
+          "fromTime": { "type": "string" },
+          "toTime": { "type": "string" },
+          "slotMinutes": { "type": "integer" }
+        }
+      },
+      "Block": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "dentistId": { "type": "integer" },
+          "fromDateTime": { "type": "string", "format": "date-time" },
+          "toDateTime": { "type": "string", "format": "date-time" },
+          "reason": { "type": "string", "nullable": true }
+        }
+      },
+      "ObraSocial": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "numeroObraSocial": { "type": "string", "nullable": true },
+          "nombre": { "type": "string" },
+          "descripcion": { "type": "string", "nullable": true },
+          "telefono": { "type": "string", "nullable": true },
+          "email": { "type": "string", "format": "email", "nullable": true },
+          "notas": { "type": "string", "nullable": true },
+          "copagoDefault": { "type": "number", "nullable": true },
+          "planes": { "type": "array", "items": { "$ref": "#/components/schemas/ObraPlan" } },
+          "alertas": { "type": "array", "items": { "$ref": "#/components/schemas/ObraAlerta" } },
+          "aranceles": { "type": "array", "items": { "$ref": "#/components/schemas/ObraArancel" } },
+          "normasTrabajoFileName": { "type": "string", "nullable": true },
+          "normasTrabajoFileData": { "type": "string", "nullable": true },
+          "normasFacturacionFileName": { "type": "string", "nullable": true },
+          "normasFacturacionFileData": { "type": "string", "nullable": true }
+        }
+      },
+      "ObraPlan": {
+        "type": "object",
+        "properties": {
+          "nombre": { "type": "string" },
+          "descripcion": { "type": "string", "nullable": true },
+          "copago": { "type": "number", "nullable": true },
+          "cobertura": { "type": "string", "nullable": true }
+        }
+      },
+      "ObraAlerta": {
+        "type": "object",
+        "properties": {
+          "tipo": { "type": "string", "enum": ["info", "warning", "critical"] },
+          "mensaje": { "type": "string" },
+          "activo": { "type": "boolean" }
+        }
+      },
+      "ObraArancel": {
+        "type": "object",
+        "properties": {
+          "codigo": { "type": "string" },
+          "descripcion": { "type": "string" },
+          "vigenciaDesde": { "type": "string", "nullable": true },
+          "vigenciaHasta": { "type": "string", "nullable": true },
+          "arancelTotal": { "type": "number", "nullable": true },
+          "copago": { "type": "number", "nullable": true }
+        }
+      },
+      "AdminUser": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string" },
+          "active": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AdminMetrics": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "string", "format": "date-time" },
+              "end": { "type": "string", "format": "date-time" }
+            }
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "totalAppointments": { "type": "integer" },
+              "createdAppointments": { "type": "integer" },
+              "canceledAppointments": { "type": "integer" },
+              "attendedAppointments": { "type": "integer" },
+              "noShowAppointments": { "type": "integer" },
+              "newPatients": { "type": "integer" },
+              "occupancyRate": { "type": "number" },
+              "cancellationRate": { "type": "number" },
+              "averageAppointmentsPerDay": { "type": "number" }
+            }
+          }
+        }
+      },
+      "PaymentsReport": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "object",
+            "properties": {
+              "totalPayments": { "type": "number" },
+              "totalService": { "type": "number" },
+              "netBalance": { "type": "number" },
+              "paymentsCount": { "type": "integer" },
+              "patientsWithDebt": { "type": "integer" },
+              "patientsWithCredit": { "type": "integer" }
+            }
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "patientId": { "type": "integer" },
+                "patientName": { "type": "string" },
+                "amount": { "type": "number" },
+                "serviceAmount": { "type": "number", "nullable": true },
+                "method": { "type": "string" },
+                "date": { "type": "string", "format": "date-time" },
+                "note": { "type": "string", "nullable": true }
+              }
+            }
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "patientId": { "type": "integer" },
+                "patientName": { "type": "string" },
+                "balance": { "type": "number" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "paths": {
+    "/health": {
+      "get": {
+        "tags": ["health"],
+        "servers": [{ "url": "http://localhost:3000" }],
+        "summary": "Health check",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": ["health"],
+        "servers": [{ "url": "http://localhost:3000" }],
+        "summary": "Metrics in memory",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
     "/auth/register": {
       "post": {
-        "summary": "Registrar paciente",
+        "tags": ["auth"],
+        "summary": "Register patient",
         "requestBody": {
           "required": true,
           "content": {
@@ -42,11 +335,21 @@
             }
           }
         },
-        "responses": { "201": { "description": "Creado" } }
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
       }
     },
     "/auth/login": {
       "post": {
+        "tags": ["auth"],
         "summary": "Login",
         "requestBody": {
           "required": true,
@@ -64,75 +367,95 @@
             }
           }
         },
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } }
+          }
+        }
       }
     },
     "/auth/me": {
       "get": {
-        "summary": "Sesion actual",
+        "tags": ["auth"],
+        "summary": "Current session",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "user": { "$ref": "#/components/schemas/User" } } } } }
+          }
+        }
       }
     },
     "/auth/refresh": {
       "post": {
-        "summary": "Refresh token",
-        "responses": { "200": { "description": "OK" } }
+        "tags": ["auth"],
+        "summary": "Refresh session",
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } }
+        }
       }
     },
     "/auth/logout": {
       "post": {
+        "tags": ["auth"],
         "summary": "Logout",
-        "responses": { "200": { "description": "OK" } }
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } }
+        }
       }
     },
     "/auth/activate": {
       "get": {
-        "summary": "Activar cuenta",
+        "tags": ["auth"],
+        "summary": "Activate account",
         "parameters": [
           { "name": "token", "in": "query", "required": true, "schema": { "type": "string" } }
         ],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } }
+        }
       }
     },
     "/auth/resend-activation": {
       "post": {
-        "summary": "Reenviar activacion",
+        "tags": ["auth"],
+        "summary": "Resend activation",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["email"],
-                "properties": { "email": { "type": "string", "format": "email" } }
-              }
+              "schema": { "type": "object", "required": ["email"], "properties": { "email": { "type": "string", "format": "email" } } }
             }
           }
         },
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } }
+        }
       }
     },
     "/auth/forgot-password": {
       "post": {
-        "summary": "Solicitar reset",
+        "tags": ["auth"],
+        "summary": "Forgot password",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["email"],
-                "properties": { "email": { "type": "string", "format": "email" } }
-              }
+              "schema": { "type": "object", "required": ["email"], "properties": { "email": { "type": "string", "format": "email" } } }
             }
           }
         },
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } }
+        }
       }
     },
     "/auth/reset-password": {
       "post": {
+        "tags": ["auth"],
         "summary": "Reset password",
         "requestBody": {
           "required": true,
@@ -149,67 +472,541 @@
             }
           }
         },
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } }
+        }
+      }
+    },
+    "/account/profile": {
+      "get": {
+        "tags": ["account"],
+        "summary": "Get profile",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      },
+      "patch": {
+        "tags": ["account"],
+        "summary": "Update profile",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/csrfHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/account/permissions": {
+      "get": {
+        "tags": ["account"],
+        "summary": "Get permissions",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "permissions": { "type": "array", "items": { "$ref": "#/components/schemas/Permission" } } } } } }
+          }
+        }
       }
     },
     "/appointments/availability": {
       "get": {
-        "summary": "Disponibilidad de turnos",
+        "tags": ["appointments"],
+        "summary": "Get availability",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
         "parameters": [
           { "name": "dentistId", "in": "query", "required": true, "schema": { "type": "integer" } },
           { "name": "date", "in": "query", "required": true, "schema": { "type": "string" } }
         ],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "dentistId": { "type": "integer" },
+                    "date": { "type": "string" },
+                    "weekday": { "type": "integer" },
+                    "slots": { "type": "array", "items": { "$ref": "#/components/schemas/AvailabilitySlot" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/appointments/my": {
+      "get": {
+        "tags": ["appointments"],
+        "summary": "My appointments",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "appointments": { "type": "array", "items": { "$ref": "#/components/schemas/Appointment" } } } } } } }
+        }
       }
     },
     "/appointments": {
       "post": {
-        "summary": "Crear turno",
+        "tags": ["appointments"],
+        "summary": "Create appointment",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
-        "responses": { "201": { "description": "Creado" } }
+        "parameters": [{ "$ref": "#/components/parameters/csrfHeader" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["dentistId", "patientId", "startAt", "endAt"],
+                "properties": {
+                  "dentistId": { "type": "integer" },
+                  "patientId": { "type": "integer" },
+                  "startAt": { "type": "string", "format": "date-time" },
+                  "endAt": { "type": "string", "format": "date-time" },
+                  "reason": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "appointment": { "$ref": "#/components/schemas/Appointment" } } } } } }
+        }
+      }
+    },
+    "/appointments/{id}/cancel": {
+      "patch": {
+        "tags": ["appointments"],
+        "summary": "Cancel appointment",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "appointment": { "$ref": "#/components/schemas/Appointment" } } } } } }
+        }
+      }
+    },
+    "/appointments/{id}/status": {
+      "patch": {
+        "tags": ["appointments"],
+        "summary": "Update appointment status",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string" } } }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "appointment": { "$ref": "#/components/schemas/Appointment" } } } } } }
+        }
+      }
+    },
+    "/appointments/{id}/reschedule": {
+      "patch": {
+        "tags": ["appointments"],
+        "summary": "Reschedule appointment",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["startAt", "endAt"],
+                "properties": {
+                  "startAt": { "type": "string", "format": "date-time" },
+                  "endAt": { "type": "string", "format": "date-time" },
+                  "reason": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "appointment": { "$ref": "#/components/schemas/Appointment" } } } } } }
+        }
+      }
+    },
+    "/availability/{dentistId}": {
+      "get": {
+        "tags": ["availability"],
+        "summary": "List availability",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "name": "dentistId", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "availability": { "type": "array", "items": { "$ref": "#/components/schemas/AvailabilityRow" } } } } } } } }
+      },
+      "post": {
+        "tags": ["availability"],
+        "summary": "Upsert availability",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "dentistId", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/AvailabilityRow" } } } }
+        },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "availability": { "type": "array", "items": { "$ref": "#/components/schemas/AvailabilityRow" } } } } } } } }
+      }
+    },
+    "/availability/{dentistId}/{id}": {
+      "delete": {
+        "tags": ["availability"],
+        "summary": "Delete availability",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "dentistId", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } } }
+      }
+    },
+    "/blocks/{dentistId}": {
+      "get": {
+        "tags": ["blocks"],
+        "summary": "List blocks",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "name": "dentistId", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "blocks": { "type": "array", "items": { "$ref": "#/components/schemas/Block" } } } } } } } }
+      },
+      "post": {
+        "tags": ["blocks"],
+        "summary": "Create block",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "dentistId", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["fromDateTime", "toDateTime"],
+                "properties": {
+                  "fromDateTime": { "type": "string", "format": "date-time" },
+                  "toDateTime": { "type": "string", "format": "date-time" },
+                  "reason": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "block": { "$ref": "#/components/schemas/Block" } } } } } } }
+      }
+    },
+    "/blocks/{dentistId}/{id}": {
+      "delete": {
+        "tags": ["blocks"],
+        "summary": "Delete block",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "dentistId", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } } }
+      }
+    },
+    "/dentists": {
+      "get": {
+        "tags": ["dentists"],
+        "summary": "List dentists",
+        "parameters": [{ "name": "specialty", "in": "query", "required": false, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "dentists": { "type": "array", "items": { "$ref": "#/components/schemas/Dentist" } } } } } } } }
+      },
+      "post": {
+        "tags": ["dentists"],
+        "summary": "Create dentist",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/csrfHeader" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password", "license", "specialty"],
+                "properties": {
+                  "fullName": { "type": "string" },
+                  "photoUrl": { "type": "string" },
+                  "bio": { "type": "string" },
+                  "specialties": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 6 },
+                  "license": { "type": "string" },
+                  "specialty": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/dentists/specialties": {
+      "get": {
+        "tags": ["dentists"],
+        "summary": "List specialties",
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "specialties": { "type": "array", "items": { "type": "string" } } } } } } } }
+      }
+    },
+    "/dentists/{id}/availability": {
+      "get": {
+        "tags": ["dentists"],
+        "summary": "Dentist availability",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "availability": { "type": "array", "items": { "$ref": "#/components/schemas/AvailabilityRow" } } } } } } } }
+      }
+    },
+    "/dentists/{id}": {
+      "patch": {
+        "tags": ["dentists"],
+        "summary": "Update dentist",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK" } }
       }
     },
     "/patients": {
       "get": {
-        "summary": "Listar pacientes",
+        "tags": ["patients"],
+        "summary": "List patients",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
-        "responses": { "200": { "description": "OK" } }
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "patients": { "type": "array", "items": { "$ref": "#/components/schemas/Patient" } } } } } } } }
       },
       "post": {
-        "summary": "Crear paciente",
+        "tags": ["patients"],
+        "summary": "Create patient",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
-        "responses": { "201": { "description": "Creado" } }
+        "parameters": [{ "$ref": "#/components/parameters/csrfHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Patient" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "patient": { "$ref": "#/components/schemas/Patient" } } } } } } }
       }
     },
     "/patients/{id}": {
       "get": {
-        "summary": "Detalle de paciente",
+        "tags": ["patients"],
+        "summary": "Get patient",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
-        ],
-        "responses": { "200": { "description": "OK" } }
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "patient": { "$ref": "#/components/schemas/Patient" } } } } } } }
       },
       "patch": {
-        "summary": "Actualizar paciente",
+        "tags": ["patients"],
+        "summary": "Update patient",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Patient" } } } },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "patient": { "$ref": "#/components/schemas/Patient" } } } } } } }
+      }
+    },
+    "/patients/{id}/appointments": {
+      "get": {
+        "tags": ["patients"],
+        "summary": "Patient appointments",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "appointments": { "type": "array", "items": { "$ref": "#/components/schemas/Appointment" } } } } } } } }
+      }
+    },
+    "/patients/{id}/studies/{studyId}": {
+      "get": {
+        "tags": ["patients"],
+        "summary": "Patient study file",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "studyId", "in": "path", "required": true, "schema": { "type": "string" } }
         ],
         "responses": { "200": { "description": "OK" } }
       }
     },
     "/obras-sociales": {
       "get": {
-        "summary": "Listar obras sociales",
+        "tags": ["obras-sociales"],
+        "summary": "List obras sociales",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
-        "responses": { "200": { "description": "OK" } }
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "obras": { "type": "array", "items": { "$ref": "#/components/schemas/ObraSocial" } } } } } } } }
       },
       "post": {
-        "summary": "Crear obra social",
+        "tags": ["obras-sociales"],
+        "summary": "Create obra social",
         "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
-        "responses": { "201": { "description": "Creado" } }
+        "parameters": [{ "$ref": "#/components/parameters/csrfHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObraSocial" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "obra": { "$ref": "#/components/schemas/ObraSocial" } } } } } } }
+      }
+    },
+    "/obras-sociales/scrape": {
+      "post": {
+        "tags": ["obras-sociales"],
+        "summary": "Scrape obras sociales",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/csrfHeader" }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/obras-sociales/{id}": {
+      "put": {
+        "tags": ["obras-sociales"],
+        "summary": "Update obra social",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObraSocial" } } } },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "obra": { "$ref": "#/components/schemas/ObraSocial" } } } } } } }
+      },
+      "delete": {
+        "tags": ["obras-sociales"],
+        "summary": "Delete obra social",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } } }
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "List admin users",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "users": { "type": "array", "items": { "$ref": "#/components/schemas/AdminUser" } } } } } } } }
+      },
+      "post": {
+        "tags": ["admin"],
+        "summary": "Create admin user",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/csrfHeader" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 6 },
+                  "active": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "user": { "$ref": "#/components/schemas/AdminUser" } } } } } } }
+      }
+    },
+    "/admin/users/views": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "List views",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "views": { "type": "array", "items": { "type": "string" } } } } } } } }
+      }
+    },
+    "/admin/users/{id}": {
+      "patch": {
+        "tags": ["admin"],
+        "summary": "Update admin user",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 6 },
+                  "active": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "user": { "$ref": "#/components/schemas/AdminUser" } } } } } } }
+      }
+    },
+    "/admin/users/{id}/permissions": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Get user permissions",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "permissions": { "type": "array", "items": { "$ref": "#/components/schemas/Permission" } } } } } } } }
+      },
+      "put": {
+        "tags": ["admin"],
+        "summary": "Update user permissions",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "$ref": "#/components/parameters/csrfHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["permissions"], "properties": { "permissions": { "type": "array", "items": { "$ref": "#/components/schemas/Permission" } } } } } }
+        },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } } } }
+      }
+    },
+    "/admin/metrics": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Admin metrics",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "start", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "end", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminMetrics" } } } } }
+      }
+    },
+    "/reports/payments": {
+      "get": {
+        "tags": ["reports"],
+        "summary": "Payments report",
+        "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+        "parameters": [
+          { "name": "start", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "end", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "method", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "patientId", "in": "query", "required": false, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentsReport" } } } } }
       }
     }
   }

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  back:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DB_HOST: localhost
+      DB_PORT: 3306
+      DB_NAME: consultorio_test
+      DB_USER: test
+      DB_PASS: test
+      CORS_ORIGIN: http://localhost:3001
+      JWT_SECRET: test
+      JWT_EXPIRES_IN: 15m
+      REFRESH_SECRET: test
+      REFRESH_EXPIRES_IN: 7d
+      RESET_EXPIRES_MINUTES: 60
+      COOKIE_SECURE: "false"
+      COOKIE_DOMAIN: ""
+      FRONT_URL: http://localhost:3001
+      RESEND_API_KEY: test
+      MAIL_FROM: no-reply@example.com
+      ACTIVATION_EXPIRES_MINUTES: 1440
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: back/package-lock.json
+      - run: npm ci
+      - run: npm test
