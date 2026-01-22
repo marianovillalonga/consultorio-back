@@ -10,6 +10,7 @@ import { RefreshToken } from './RefreshToken.js'
 import { AuditLog } from './AuditLog.js'
 import { ActivationToken } from './ActivationToken.js'
 import { ResetToken } from './ResetToken.js'
+import { Implant } from './Implant.js'
 
 Dentist.belongsTo(User, { foreignKey: 'userId' })
 Availability.belongsTo(Dentist, { foreignKey: 'dentistId' })
@@ -17,6 +18,7 @@ Block.belongsTo(Dentist, { foreignKey: 'dentistId' })
 
 Appointment.belongsTo(Dentist, { foreignKey: 'dentistId' })
 Appointment.belongsTo(Patient, { foreignKey: 'patientId' })
+Implant.belongsTo(Patient, { foreignKey: 'patientId' })
 
 UserPermission.belongsTo(User, { foreignKey: 'userId' })
 RefreshToken.belongsTo(User, { foreignKey: 'userId' })
@@ -24,4 +26,18 @@ AuditLog.belongsTo(User, { foreignKey: 'userId' })
 ActivationToken.belongsTo(User, { foreignKey: 'userId' })
 ResetToken.belongsTo(User, { foreignKey: 'userId' })
 
-export { User, Patient, Dentist, Availability, Block, Appointment, ObraSocial, UserPermission, RefreshToken, AuditLog, ActivationToken, ResetToken }
+export {
+  User,
+  Patient,
+  Dentist,
+  Availability,
+  Block,
+  Appointment,
+  ObraSocial,
+  UserPermission,
+  RefreshToken,
+  AuditLog,
+  ActivationToken,
+  ResetToken,
+  Implant
+}

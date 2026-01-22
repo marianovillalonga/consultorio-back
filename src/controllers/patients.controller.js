@@ -68,7 +68,10 @@ const paymentSchema = z.object({
     method: z.string().min(2).max(50),
     date: z.string().datetime(),
     note: z.string().max(200).optional(),
-    serviceAmount: z.number().optional()
+    serviceAmount: z.number().optional(),
+    implantId: z.number().int().optional(),
+    implantStage: z.string().max(40).optional(),
+    planItemId: z.string().max(80).optional()
 })
 
 const studyFileSchema = z.object({
