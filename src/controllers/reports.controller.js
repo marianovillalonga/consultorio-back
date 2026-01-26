@@ -1,4 +1,4 @@
-import { Patient } from '../models/index.js'
+import { Appointment, Dentist, Patient } from '../models/index.js'
 
 const toDate = (value, endOfDay = false) => {
     if (!value) return null
@@ -35,7 +35,32 @@ export const paymentsReport = async (req, res) => {
     const startDate = toDate(start)
     const endDate = toDate(end, true)
 
-    const where = patientId ? { id: Number(patientId) } : undefined
+    let where = undefined
+    if (req.user?.role === 'ADMIN') {
+        // admin ve todos
+        where = patientId ? { id: Number(patientId) } : undefined
+    } else if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+        if (!dentist) return res.json({ summary: { totalPayments: 0, totalService: 0, netBalance: 0, paymentsCount: 0, patientsWithDebt: 0, patientsWithCredit: 0 }, payments: [], balances: [] })
+        const rows = await Appointment.findAll({
+            where: { dentistId: dentist.id },
+            attributes: ['patientId'],
+            group: ['patientId'],
+            raw: true
+        })
+        const patientIds = rows.map(row => row.patientId).filter(Boolean)
+        if (patientIds.length === 0) {
+            return res.json({ summary: { totalPayments: 0, totalService: 0, netBalance: 0, paymentsCount: 0, patientsWithDebt: 0, patientsWithCredit: 0 }, payments: [], balances: [] })
+        }
+        where = {
+            id: patientId ? Number(patientId) : patientIds,
+            clinicId: req.user?.clinicId
+        }
+    } else {
+        const baseWhere = { clinicId: req.user?.clinicId }
+        where = patientId ? { ...baseWhere, id: Number(patientId) } : baseWhere
+    }
+
     const patients = where ? await Patient.findAll({ where }) : await Patient.findAll()
 
     const payments = []

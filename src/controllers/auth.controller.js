@@ -137,8 +137,9 @@ export const login = async (req, res) => {
         }
     }
 
-    if (!user || !user.active) return res.status(401).json({ message: 'Credenciales invalidas' })
-    if (!user.activeStatus) return res.status(403).json({ message: 'Cuenta pendiente de activacion' })
+    if (!user || !user.active || !user.activeStatus) {
+        return res.status(401).json({ message: 'Credenciales invalidas' })
+    }
 
     const ok = await verifyPassword(data.password, user.passwordHash)
     if (!ok) {
@@ -244,8 +245,9 @@ export const resendActivation = async (req, res) => {
         return res.status(400).json({ message: 'Email requerido' })
     }
     const user = await getUserByEmail(email)
-    if (!user) return res.status(404).json({ message: 'Usuario no encontrado' })
-    if (user.activeStatus) return res.status(400).json({ message: 'La cuenta ya esta activa' })
+    if (!user || user.activeStatus) {
+        return res.json({ ok: true })
+    }
 
     const activationToken = crypto.randomBytes(32).toString('hex')
     const activationExpires = new Date(Date.now() + env.activation.expiresMinutes * 60 * 1000)

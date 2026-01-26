@@ -2,10 +2,30 @@ import { Patient, Appointment, Dentist, User } from '../models/index.js'
 import { z } from 'zod'
 
 // Listar pacientes con datos básicos y saldo
-export const listPatients = async (_req, res) => {
+export const listPatients = async (req, res) => {
+    let where = undefined
+    if (req.user?.role === 'ADMIN') {
+        // admin ve todos
+    } else if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+        if (!dentist) return res.json({ patients: [] })
+        const rows = await Appointment.findAll({
+            where: { dentistId: dentist.id },
+            attributes: ['patientId'],
+            group: ['patientId'],
+            raw: true
+        })
+        const patientIds = rows.map(row => row.patientId).filter(Boolean)
+        if (patientIds.length === 0) return res.json({ patients: [] })
+        where = { id: patientIds, clinicId: req.user?.clinicId }
+    } else {
+        where = { clinicId: req.user?.clinicId }
+    }
+
     const patients = await Patient.findAll({
         attributes: [
             'id',
+            'clinicId',
             'fullName',
             'email',
             'dni',
@@ -20,6 +40,7 @@ export const listPatients = async (_req, res) => {
             'historyEntries',
             'balance'
         ],
+        where,
         order: [['fullName', 'ASC']]
     })
     res.json({ patients })
@@ -29,7 +50,18 @@ export const getPatient = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
-    const patient = await Patient.findByPk(id)
+    let patient = null
+    if (req.user?.role === 'ADMIN') {
+        patient = await Patient.findByPk(id)
+    } else if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+        if (!dentist) return res.status(404).json({ message: 'Paciente no encontrado' })
+        const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId: id } })
+        if (!linked) return res.status(404).json({ message: 'Paciente no encontrado' })
+        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
+    } else {
+        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
+    }
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
     const json = patient.toJSON()
@@ -48,8 +80,29 @@ export const getPatientAppointments = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
+    let patient = null
+    if (req.user?.role === 'ADMIN') {
+        patient = await Patient.findByPk(id)
+    } else if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+        if (!dentist) return res.status(404).json({ message: 'Paciente no encontrado' })
+        const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId: id } })
+        if (!linked) return res.status(404).json({ message: 'Paciente no encontrado' })
+        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
+    } else {
+        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
+    }
+    if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
+
+    const where = { patientId: id }
+    if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+        if (!dentist) return res.json({ appointments: [] })
+        where.dentistId = dentist.id
+    }
+
     const appts = await Appointment.findAll({
-        where: { patientId: id },
+        where,
         order: [['startAt', 'DESC']],
         limit: 10,
         include: [{ model: Dentist, include: [{ model: User, attributes: ['email'] }] }]
@@ -118,7 +171,8 @@ export const createPatient = async (req, res) => {
     const parsed = createPatientSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Datos invalidos', errors: parsed.error.errors })
 
-    const patient = await Patient.create(parsed.data)
+    const payload = { ...parsed.data, clinicId: req.user?.clinicId }
+    const patient = await Patient.create(payload)
     res.status(201).json({ patient })
 }
 
@@ -129,10 +183,22 @@ export const updatePatient = async (req, res) => {
     const parsed = updatePatientSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Datos invalidos', errors: parsed.error.errors })
 
-    const patient = await Patient.findByPk(id)
+    let patient = null
+    if (req.user?.role === 'ADMIN') {
+        patient = await Patient.findByPk(id)
+    } else if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+        if (!dentist) return res.status(404).json({ message: 'Paciente no encontrado' })
+        const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId: id } })
+        if (!linked) return res.status(404).json({ message: 'Paciente no encontrado' })
+        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
+    } else {
+        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
+    }
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
     const payload = { ...parsed.data }
+    delete payload.clinicId
     if (payload.studiesFiles !== undefined) {
         const merged = mergeStudyFiles(payload.studiesFiles, patient.studiesFiles, req.user?.id)
         if (!merged.ok) return res.status(400).json({ message: merged.error })
@@ -153,7 +219,18 @@ export const getPatientStudyFile = async (req, res) => {
     const studyId = String(req.params.studyId || '')
     if (!id || !studyId) return res.status(400).json({ message: 'Parametros invalidos' })
 
-    const patient = await Patient.findByPk(id)
+    let patient = null
+    if (req.user?.role === 'ADMIN') {
+        patient = await Patient.findByPk(id)
+    } else if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+        if (!dentist) return res.status(404).json({ message: 'Paciente no encontrado' })
+        const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId: id } })
+        if (!linked) return res.status(404).json({ message: 'Paciente no encontrado' })
+        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
+    } else {
+        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
+    }
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
     const parsed = parseStudyFiles(patient.studiesFiles)

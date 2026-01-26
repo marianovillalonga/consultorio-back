@@ -5,6 +5,7 @@ export const Implant = sequelize.define(
   'Implant',
   {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+    clinicId: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     patientId: { type: DataTypes.INTEGER, allowNull: false },
     piece: { type: DataTypes.STRING(10), allowNull: false },
     maxillary: { type: DataTypes.ENUM('SUP', 'INF'), allowNull: true },

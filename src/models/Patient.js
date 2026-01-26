@@ -3,6 +3,7 @@ import { sequelize } from '../db/sequelize.js'
 
 export const Patient = sequelize.define('Patient', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+    clinicId: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     fullName: { type: DataTypes.STRING(150), allowNull: false },
     dni: { type: DataTypes.STRING(30), allowNull: true },
     phone: { type: DataTypes.STRING(40), allowNull: true },

@@ -3,6 +3,7 @@ import { sequelize } from '../db/sequelize.js'
 
 export const User = sequelize.define('User', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+    clinicId: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     email: { type: DataTypes.STRING(120), allowNull: false, unique: true },
     passwordHash: { type: DataTypes.STRING(255), allowNull: false },
     role: { type: DataTypes.ENUM('ADMIN', 'ODONTOLOGO', 'RECEPCION', 'PACIENTE'), allowNull: false },

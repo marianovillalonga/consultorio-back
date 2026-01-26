@@ -1,4 +1,4 @@
-import { Implant, Patient } from '../models/index.js'
+import { Appointment, Dentist, Implant, Patient } from '../models/index.js'
 import { sequelize } from '../db/sequelize.js'
 import { z } from 'zod'
 
@@ -13,6 +13,18 @@ const studyFileSchema = z.object({
 })
 
 const studyFilesSchema = z.array(studyFileSchema)
+
+const MAX_IMPLANT_FILE_BYTES = 8 * 1024 * 1024
+
+const estimateBase64Bytes = (value) => {
+  if (!value) return 0
+  const raw = String(value)
+  const base64 = raw.includes(',') ? raw.split(',').pop() : raw
+  const len = base64.length
+  if (!len) return 0
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((len * 3) / 4) - padding)
+}
 
 const nullishToUndefined = (value) => {
   if (value === null || value === undefined || value === '') return undefined
@@ -167,24 +179,6 @@ const baseImplantSchema = {
   technique: optionalEnum(['CONVENCIONAL', 'GUIADA']),
   notes: optionalString(4000),
   responsibleUserId: optionalInt(),
-  createdByUserId: optionalInt(),
-  updatedByUserId: optionalInt(),
-  statusHistory: z
-    .array(
-      z.object({
-        from: z.string().max(40).optional(),
-        to: z.string().max(40).optional(),
-        at: z.string().max(40),
-        reason: z.string().max(200).optional(),
-        reasonCode: z.string().max(80).optional(),
-        reasonText: z.string().max(200).optional(),
-        oldStatus: z.string().max(40).optional(),
-        newStatus: z.string().max(40).optional(),
-        controlId: z.string().max(80).optional(),
-        source: z.string().max(40).optional()
-      })
-    )
-    .optional(),
   planning: optionalObject(planningSchema),
   surgery: optionalObject(surgerySchema),
   osteointegration: optionalObject(osteointegrationSchema),
@@ -247,6 +241,10 @@ const mergeFiles = (incoming = [], existing = [], userId) => {
     const data = item.data && item.data.length > 0 ? item.data : prev?.data
     if (!data) {
       return { ok: false, error: `Falta data para el archivo ${item.name}` }
+    }
+    const estimatedBytes = estimateBase64Bytes(data)
+    if (estimatedBytes > MAX_IMPLANT_FILE_BYTES) {
+      return { ok: false, error: `Archivo ${item.name} supera el limite de ${MAX_IMPLANT_FILE_BYTES} bytes` }
     }
     merged.push({
       id: item.id,
@@ -345,15 +343,28 @@ const deriveStatusFromControls = (controls = []) => {
   return null
 }
 
+const getPatientForAccess = async (req, patientId) => {
+  if (req.user?.role === 'ADMIN') {
+    return Patient.findByPk(patientId)
+  }
+  if (req.user?.role === 'ODONTOLOGO') {
+    const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+    if (!dentist) return null
+    const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId } })
+    if (!linked) return null
+  }
+  return Patient.findOne({ where: { id: patientId, clinicId: req.user?.clinicId } })
+}
+
 export const listPatientImplants = async (req, res) => {
   const patientId = Number(req.params.id)
   if (!patientId) return res.status(400).json({ message: 'ID requerido' })
 
-  const patient = await Patient.findByPk(patientId)
+  const patient = await getPatientForAccess(req, patientId)
   if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
   const implants = await Implant.findAll({
-    where: { patientId },
+    where: req.user?.role === 'ADMIN' ? { patientId } : { patientId, clinicId: patient.clinicId },
     order: [['createdAt', 'DESC']]
   })
   const serialized = implants.map((i) => stripImplantFiles(i))
@@ -365,8 +376,15 @@ export const getPatientImplant = async (req, res) => {
   const implantId = Number(req.params.implantId)
   if (!patientId || !implantId) return res.status(400).json({ message: 'Parametros invalidos' })
 
-  const implant = await Implant.findByPk(implantId)
-  if (!implant || implant.patientId !== patientId) return res.status(404).json({ message: 'Implante no encontrado' })
+  const patient = await getPatientForAccess(req, patientId)
+  if (!patient) return res.status(404).json({ message: 'Implante no encontrado' })
+
+  const implant = await Implant.findOne({
+    where: req.user?.role === 'ADMIN'
+      ? { id: implantId, patientId }
+      : { id: implantId, patientId, clinicId: patient.clinicId }
+  })
+  if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
   res.json({ implant: stripImplantFiles(implant) })
 }
@@ -375,7 +393,7 @@ export const createPatientImplant = async (req, res) => {
   const patientId = Number(req.params.id)
   if (!patientId) return res.status(400).json({ message: 'ID requerido' })
 
-  const patient = await Patient.findByPk(patientId)
+  const patient = await getPatientForAccess(req, patientId)
   if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
   const parsed = createImplantSchema.safeParse(req.body)
@@ -388,9 +406,9 @@ export const createPatientImplant = async (req, res) => {
     })
   }
 
-  const payload = { ...parsed.data, patientId }
-  payload.createdByUserId = payload.createdByUserId || req.user?.id || null
-  payload.updatedByUserId = payload.updatedByUserId || req.user?.id || null
+  const payload = { ...parsed.data, patientId, clinicId: patient.clinicId }
+  payload.createdByUserId = req.user?.id || null
+  payload.updatedByUserId = req.user?.id || null
   const merged = mergeImplantFiles(payload, null, req.user?.id)
   if (!merged.ok) return res.status(400).json({ message: merged.error })
 
@@ -403,8 +421,15 @@ export const updatePatientImplant = async (req, res) => {
   const implantId = Number(req.params.implantId)
   if (!patientId || !implantId) return res.status(400).json({ message: 'Parametros invalidos' })
 
-  const implant = await Implant.findByPk(implantId)
-  if (!implant || implant.patientId !== patientId) return res.status(404).json({ message: 'Implante no encontrado' })
+  const patient = await getPatientForAccess(req, patientId)
+  if (!patient) return res.status(404).json({ message: 'Implante no encontrado' })
+
+  const implant = await Implant.findOne({
+    where: req.user?.role === 'ADMIN'
+      ? { id: implantId, patientId }
+      : { id: implantId, patientId, clinicId: patient.clinicId }
+  })
+  if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
   const parsed = updateImplantSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -416,13 +441,24 @@ export const updatePatientImplant = async (req, res) => {
     })
   }
 
-  const merged = mergeImplantFiles(parsed.data, implant.toJSON(), req.user?.id)
+  const sanitized = { ...parsed.data }
+  delete sanitized.createdByUserId
+  delete sanitized.updatedByUserId
+  delete sanitized.statusHistory
+  delete sanitized.clinicId
+  const merged = mergeImplantFiles(sanitized, implant.toJSON(), req.user?.id)
   if (!merged.ok) return res.status(400).json({ message: merged.error })
 
   try {
     await sequelize.transaction(async (t) => {
-      const fresh = await Implant.findByPk(implantId, { transaction: t, lock: t.LOCK.UPDATE })
-      if (!fresh || fresh.patientId !== patientId) {
+      const fresh = await Implant.findOne({
+        where: req.user?.role === 'ADMIN'
+          ? { id: implantId, patientId }
+          : { id: implantId, patientId, clinicId: patient.clinicId },
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      })
+      if (!fresh) {
         res.status(404).json({ message: 'Implante no encontrado' })
         return
       }
@@ -478,8 +514,15 @@ export const deletePatientImplant = async (req, res) => {
   const implantId = Number(req.params.implantId)
   if (!patientId || !implantId) return res.status(400).json({ message: 'Parametros invalidos' })
 
-  const implant = await Implant.findByPk(implantId)
-  if (!implant || implant.patientId !== patientId) return res.status(404).json({ message: 'Implante no encontrado' })
+  const patient = await getPatientForAccess(req, patientId)
+  if (!patient) return res.status(404).json({ message: 'Implante no encontrado' })
+
+  const implant = await Implant.findOne({
+    where: req.user?.role === 'ADMIN'
+      ? { id: implantId, patientId }
+      : { id: implantId, patientId, clinicId: patient.clinicId }
+  })
+  if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
   await implant.destroy()
   res.json({ ok: true })
@@ -491,8 +534,15 @@ export const getPatientImplantFile = async (req, res) => {
   const fileId = String(req.params.fileId || '')
   if (!patientId || !implantId || !fileId) return res.status(400).json({ message: 'Parametros invalidos' })
 
-  const implant = await Implant.findByPk(implantId)
-  if (!implant || implant.patientId !== patientId) return res.status(404).json({ message: 'Implante no encontrado' })
+  const patient = await getPatientForAccess(req, patientId)
+  if (!patient) return res.status(404).json({ message: 'Implante no encontrado' })
+
+  const implant = await Implant.findOne({
+    where: req.user?.role === 'ADMIN'
+      ? { id: implantId, patientId }
+      : { id: implantId, patientId, clinicId: patient.clinicId }
+  })
+  if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
   const file = findFileById(implant.toJSON(), fileId)
   if (!file || !file.data) return res.status(404).json({ message: 'Archivo no encontrado' })

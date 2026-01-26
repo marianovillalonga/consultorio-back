@@ -10,6 +10,7 @@ import rateLimit from 'express-rate-limit'
 import { randomUUID } from 'crypto'
 import { env } from './config/env.js'
 import { csrfProtect } from './middlewares/csrf.js'
+import { authRequired, requireRole } from './middlewares/auth.js'
 import routes from './routes/index.js'
 
 const app = express()
@@ -116,7 +117,7 @@ app.use((req, res, next) => {
 })
 
 app.get('/health', (req, res) => res.json({ status: 'OK' }))
-app.get('/metrics', (req, res) => {
+app.get('/metrics', authRequired, requireRole('ADMIN'), (req, res) => {
   res.json({
     uptimeSec: Math.floor((Date.now() - metrics.startTime) / 1000),
     totalRequests: metrics.totalRequests,
@@ -125,8 +126,8 @@ app.get('/metrics', (req, res) => {
   })
 })
 if (openapiSpec) {
-  app.get('/api/docs.json', (req, res) => res.json(openapiSpec))
-  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openapiSpec))
+  app.get('/api/docs.json', authRequired, requireRole('ADMIN'), (req, res) => res.json(openapiSpec))
+  app.use('/api/docs', authRequired, requireRole('ADMIN'), swaggerUi.serve, swaggerUi.setup(openapiSpec))
 }
 app.use('/api', routes)
 

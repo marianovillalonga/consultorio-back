@@ -1,4 +1,4 @@
-﻿import jwt from 'jsonwebtoken'
+import jwt from 'jsonwebtoken'
 import { env } from '../config/env.js'
 import { User, UserPermission } from '../models/index.js'
 
@@ -12,12 +12,17 @@ export const authRequired = async (req, res, next) => {
 
         const payload = jwt.verify(token, env.jwt.secret)
         const user = await User.findByPk(payload.sub)
-        if ((!user || !user.active || !user.activeStatus)) return res.status(401).json({ message: 'Usuario invÃ¡lido' })
+        if ((!user || !user.active || !user.activeStatus)) {
+            return res.status(401).json({ message: 'Usuario invalido' })
+        }
+        if (user.clinicId === null || user.clinicId === undefined) {
+            return res.status(403).json({ message: 'Usuario sin clinica' })
+        }
 
-        req.user = { id: user.id, role: user.role, email: user.email }
+        req.user = { id: user.id, role: user.role, email: user.email, clinicId: user.clinicId }
         next()
     } catch (e) {
-        return res.status(401).json({ message: 'Token invÃ¡lido' })
+        return res.status(401).json({ message: 'Token invalido' })
     }
 }
 
@@ -50,5 +55,3 @@ export const requireViewPermission = (viewKey, access = 'read') => async (req, r
     }
     next()
 }
-
-
