@@ -63,7 +63,7 @@ export const registerPatient = async (req, res) => {
     }
     const data = parsed.data
     if (!validatePasswordStrength(data.password)) {
-        return res.status(400).json({ message: 'La contraseña es debil' })
+        return res.status(400).json({ message: 'La contrasena es debil' })
     }
 
     const exists = await getUserByEmail(data.email)
@@ -307,6 +307,3 @@ export const resetPassword = async (req, res) => {
 
     res.json({ ok: true })
 }
-
-
-

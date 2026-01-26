@@ -67,7 +67,7 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter)
 
 app.use(helmet())
-app.use(express.json({ limit: '50mb' }))
+app.use(express.json({ limit: '10mb' }))
 app.use(cookieParser())
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
