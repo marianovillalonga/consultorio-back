@@ -31,6 +31,7 @@ export const Implant = sequelize.define(
     responsibleUserId: { type: DataTypes.INTEGER, allowNull: true },
     createdByUserId: { type: DataTypes.INTEGER, allowNull: true },
     updatedByUserId: { type: DataTypes.INTEGER, allowNull: true },
+    statusHistory: { type: DataTypes.JSON, allowNull: true },
     planning: { type: DataTypes.JSON, allowNull: true },
     surgery: { type: DataTypes.JSON, allowNull: true },
     osteointegration: { type: DataTypes.JSON, allowNull: true },

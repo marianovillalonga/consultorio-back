@@ -1,4 +1,5 @@
 import { Implant, Patient } from '../models/index.js'
+import { sequelize } from '../db/sequelize.js'
 import { z } from 'zod'
 
 const studyFileSchema = z.object({
@@ -108,7 +109,9 @@ const osteointegrationSchema = z
             id: z.string().min(1).max(80),
             date: z.string().min(1).max(40),
             status: z.string().max(120).optional(),
-            notes: z.string().max(2000).optional()
+            notes: z.string().max(2000).optional(),
+            createdAt: z.string().max(40).optional(),
+            controlType: z.enum(['OSTEOINTEGRACION', 'SEGUIMIENTO']).optional()
           })
           .passthrough()
       )
@@ -141,7 +144,9 @@ const followupsSchema = z
             id: z.string().min(1).max(80),
             date: z.string().min(1).max(40),
             status: z.string().max(120).optional(),
-            notes: z.string().max(2000).optional()
+            notes: z.string().max(2000).optional(),
+            createdAt: z.string().max(40).optional(),
+            controlType: z.enum(['OSTEOINTEGRACION', 'SEGUIMIENTO']).optional()
           })
           .passthrough()
       )
@@ -164,6 +169,22 @@ const baseImplantSchema = {
   responsibleUserId: optionalInt(),
   createdByUserId: optionalInt(),
   updatedByUserId: optionalInt(),
+  statusHistory: z
+    .array(
+      z.object({
+        from: z.string().max(40).optional(),
+        to: z.string().max(40).optional(),
+        at: z.string().max(40),
+        reason: z.string().max(200).optional(),
+        reasonCode: z.string().max(80).optional(),
+        reasonText: z.string().max(200).optional(),
+        oldStatus: z.string().max(40).optional(),
+        newStatus: z.string().max(40).optional(),
+        controlId: z.string().max(80).optional(),
+        source: z.string().max(40).optional()
+      })
+    )
+    .optional(),
   planning: optionalObject(planningSchema),
   surgery: optionalObject(surgerySchema),
   osteointegration: optionalObject(osteointegrationSchema),
@@ -278,6 +299,52 @@ const findFileById = (implant, fileId) => {
   return all.find((f) => f.id === fileId) || null
 }
 
+const STATUS_RANK = {
+  FALLIDO: 6,
+  RETIRADO: 6,
+  PROTESIS: 5,
+  OSTEOINTEGRACION: 4,
+  COLOCADO: 3,
+  CONTROL: 2,
+  PLANIFICADO: 1
+}
+
+const TERMINAL_STATUSES = new Set(['FALLIDO', 'RETIRADO', 'PROTESIS'])
+
+const normalizeControls = (controls = []) =>
+  (Array.isArray(controls) ? controls : []).map((control) => ({
+    ...control,
+    createdAt: control.createdAt || new Date().toISOString()
+  }))
+
+const compareControlDates = (a, b) => {
+  const dateA = String(a.date || '')
+  const dateB = String(b.date || '')
+  if (dateA !== dateB) return dateB.localeCompare(dateA)
+  return String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
+}
+
+const deriveStatusFromControls = (controls = []) => {
+  if (!Array.isArray(controls) || controls.length === 0) return null
+  const sorted = [...controls].sort(compareControlDates)
+  const latest = sorted[0]
+  const raw = String(latest?.status || '').toLowerCase()
+  if (!raw) return null
+  const base = { controlId: latest.id || null, controlDate: latest.date || null }
+  if (raw.includes('fall'))
+    return { ...base, key: 'FALLIDO', reasonCode: 'CONTROL_FALLA', reasonText: latest.status || '' }
+  if (raw.includes('retir'))
+    return { ...base, key: 'RETIRADO', reasonCode: 'CONTROL_RETIRO', reasonText: latest.status || '' }
+  if (raw.includes('protesis'))
+    return { ...base, key: 'PROTESIS', reasonCode: 'CONTROL_PROTESIS', reasonText: latest.status || '' }
+  if (raw.includes('integrado') || raw.includes('osteo') || raw.includes('oseo')) {
+    return { ...base, key: 'OSTEOINTEGRACION', reasonCode: 'CONTROL_INTEGRADO', reasonText: latest.status || '' }
+  }
+  if (raw.includes('ok') || raw.includes('control'))
+    return { ...base, key: 'CONTROL', reasonCode: 'CONTROL_OK', reasonText: latest.status || '' }
+  return null
+}
+
 export const listPatientImplants = async (req, res) => {
   const patientId = Number(req.params.id)
   if (!patientId) return res.status(400).json({ message: 'ID requerido' })
@@ -353,9 +420,53 @@ export const updatePatientImplant = async (req, res) => {
   if (!merged.ok) return res.status(400).json({ message: merged.error })
 
   try {
-    const updatePayload = { ...merged.value, updatedByUserId: req.user?.id || implant.updatedByUserId || null }
-    await implant.update(updatePayload)
-    res.json({ implant: stripImplantFiles(implant) })
+    await sequelize.transaction(async (t) => {
+      const fresh = await Implant.findByPk(implantId, { transaction: t, lock: t.LOCK.UPDATE })
+      if (!fresh || fresh.patientId !== patientId) {
+        res.status(404).json({ message: 'Implante no encontrado' })
+        return
+      }
+      const existing = fresh.toJSON()
+      const updatePayload = { ...merged.value, updatedByUserId: req.user?.id || existing.updatedByUserId || null }
+
+      const incomingHasOsteoControls =
+        parsed.data?.osteointegration && Array.isArray(parsed.data.osteointegration.controls)
+      if (incomingHasOsteoControls && !parsed.data?.status) {
+        const osteoControls = normalizeControls(updatePayload.osteointegration?.controls || existing.osteointegration?.controls || [])
+          .map((control) => ({
+            ...control,
+            controlType: control.controlType || 'OSTEOINTEGRACION'
+          }))
+          .filter((control) => control.controlType === 'OSTEOINTEGRACION')
+        const suggestion = deriveStatusFromControls(osteoControls)
+        if (suggestion) {
+          const current = existing.status || 'PLANIFICADO'
+          const currentRank = STATUS_RANK[current] || 0
+          const nextRank = STATUS_RANK[suggestion.key] || 0
+          const canAdvance = nextRank > currentRank
+          const isTerminal = TERMINAL_STATUSES.has(current)
+          if (canAdvance && !isTerminal) {
+            updatePayload.status = suggestion.key
+            const history = Array.isArray(existing.statusHistory) ? [...existing.statusHistory] : []
+            history.push({
+              oldStatus: current,
+              newStatus: suggestion.key,
+              from: current,
+              to: suggestion.key,
+              at: new Date().toISOString(),
+              reasonCode: suggestion.reasonCode,
+              reasonText: suggestion.reasonText || '',
+              controlId: suggestion.controlId || null,
+              source: 'auto'
+            })
+            updatePayload.statusHistory = history
+          }
+        }
+      }
+
+      await fresh.update(updatePayload, { transaction: t })
+      res.json({ implant: stripImplantFiles(fresh) })
+    })
   } catch (err) {
     console.error('[implants.update] Error al actualizar', err)
     res.status(500).json({ message: err?.message || 'No se pudo actualizar el implante' })
