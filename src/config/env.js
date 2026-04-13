@@ -15,11 +15,12 @@ const stringToNumber = (val) => {
 const envSchema = z.object({
     NODE_ENV: z.string().optional(),
     PORT: z.preprocess(stringToNumber, z.number().int().positive()),
-    DB_HOST: z.string().min(1),
-    DB_PORT: z.preprocess(stringToNumber, z.number().int().positive()),
-    DB_NAME: z.string().min(1),
-    DB_USER: z.string().min(1),
-    DB_PASS: z.string().min(1),
+    DATABASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+    DB_HOST: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    DB_PORT: z.preprocess(stringToNumber, z.number().int().positive().optional()),
+    DB_NAME: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    DB_USER: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    DB_PASS: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
     CORS_ORIGIN: z.preprocess(emptyToUndefined, z.string().optional()),
     JWT_SECRET: z.string().min(1),
     JWT_EXPIRES_IN: z.string().min(1),
@@ -43,6 +44,17 @@ const envSchema = z.object({
         z.number().int().positive().default(1440)
     )
 }).superRefine((data, ctx) => {
+    const hasDatabaseUrl = Boolean(data.DATABASE_URL)
+    const dbValues = [data.DB_HOST, data.DB_PORT, data.DB_NAME, data.DB_USER, data.DB_PASS]
+    const hasDiscreteDbConfig = dbValues.every(Boolean)
+
+    if (!hasDatabaseUrl && !hasDiscreteDbConfig) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Debe configurar DATABASE_URL o DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASS'
+        })
+    }
+
     const hasResend = Boolean(data.RESEND_API_KEY)
     const smtpValues = [data.SMTP_HOST, data.SMTP_PORT, data.SMTP_USER, data.SMTP_PASS]
     const hasSmtp = smtpValues.every(Boolean)
@@ -67,6 +79,7 @@ const data = parsed.data
 
 export const env = {
     port: data.PORT,
+    databaseUrl: data.DATABASE_URL,
     db: {
         host: data.DB_HOST,
         port: data.DB_PORT,
