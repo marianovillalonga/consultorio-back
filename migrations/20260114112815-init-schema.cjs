@@ -4,6 +4,7 @@ module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.createTable('users', {
       id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
+      clinicId: { type: Sequelize.INTEGER, allowNull: false, defaultValue: 1 },
       email: { type: Sequelize.STRING(120), allowNull: false, unique: true },
       passwordHash: { type: Sequelize.STRING(255), allowNull: false },
       role: { type: Sequelize.ENUM('ADMIN', 'ODONTOLOGO', 'RECEPCION', 'PACIENTE'), allowNull: false },
@@ -15,6 +16,7 @@ module.exports = {
 
     await queryInterface.createTable('patients', {
       id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
+      clinicId: { type: Sequelize.INTEGER, allowNull: false, defaultValue: 1 },
       fullName: { type: Sequelize.STRING(150), allowNull: false },
       dni: { type: Sequelize.STRING(30), allowNull: true },
       phone: { type: Sequelize.STRING(40), allowNull: true },
@@ -37,6 +39,10 @@ module.exports = {
     await queryInterface.createTable('dentists', {
       id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
       userId: { type: Sequelize.INTEGER, allowNull: false, unique: true },
+      fullName: { type: Sequelize.STRING(150), allowNull: true },
+      photoUrl: { type: Sequelize.STRING(255), allowNull: true },
+      bio: { type: Sequelize.TEXT, allowNull: true },
+      specialties: { type: Sequelize.TEXT, allowNull: true },
       license: { type: Sequelize.STRING(80), allowNull: true },
       specialty: { type: Sequelize.STRING(120), allowNull: true },
       createdAt: { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.NOW },
@@ -85,11 +91,53 @@ module.exports = {
       telefono: { type: Sequelize.STRING(50), allowNull: true },
       email: { type: Sequelize.STRING(120), allowNull: true },
       notas: { type: Sequelize.TEXT, allowNull: true },
+      copagoDefault: { type: Sequelize.DECIMAL(10, 2), allowNull: true },
+      planes: { type: Sequelize.JSON, allowNull: true },
+      alertas: { type: Sequelize.JSON, allowNull: true },
       aranceles: { type: Sequelize.JSON, allowNull: true },
       normasTrabajoFileName: { type: Sequelize.STRING(200), allowNull: true },
       normasTrabajoFileData: { type: Sequelize.TEXT, allowNull: true },
       normasFacturacionFileName: { type: Sequelize.STRING(200), allowNull: true },
       normasFacturacionFileData: { type: Sequelize.TEXT, allowNull: true },
+      createdAt: { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.NOW },
+      updatedAt: { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.NOW }
+    })
+
+    await queryInterface.createTable('implants', {
+      id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
+      clinicId: { type: Sequelize.INTEGER, allowNull: false, defaultValue: 1 },
+      patientId: { type: Sequelize.INTEGER, allowNull: false },
+      piece: { type: Sequelize.STRING(10), allowNull: false },
+      maxillary: { type: Sequelize.ENUM('SUP', 'INF'), allowNull: true },
+      status: {
+        type: Sequelize.ENUM(
+          'PLANIFICADO',
+          'COLOCADO',
+          'OSTEOINTEGRACION',
+          'PROTESIS',
+          'CONTROL',
+          'FALLIDO',
+          'RETIRADO'
+        ),
+        allowNull: false,
+        defaultValue: 'PLANIFICADO'
+      },
+      implantType: { type: Sequelize.STRING(120), allowNull: true },
+      length: { type: Sequelize.STRING(40), allowNull: true },
+      diameter: { type: Sequelize.STRING(40), allowNull: true },
+      brand: { type: Sequelize.STRING(120), allowNull: true },
+      model: { type: Sequelize.STRING(120), allowNull: true },
+      technique: { type: Sequelize.ENUM('CONVENCIONAL', 'GUIADA'), allowNull: true },
+      notes: { type: Sequelize.TEXT, allowNull: true },
+      responsibleUserId: { type: Sequelize.INTEGER, allowNull: true },
+      createdByUserId: { type: Sequelize.INTEGER, allowNull: true },
+      updatedByUserId: { type: Sequelize.INTEGER, allowNull: true },
+      statusHistory: { type: Sequelize.JSON, allowNull: true },
+      planning: { type: Sequelize.JSON, allowNull: true },
+      surgery: { type: Sequelize.JSON, allowNull: true },
+      osteointegration: { type: Sequelize.JSON, allowNull: true },
+      prosthesis: { type: Sequelize.JSON, allowNull: true },
+      followups: { type: Sequelize.JSON, allowNull: true },
       createdAt: { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.NOW },
       updatedAt: { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.NOW }
     })
@@ -144,6 +192,12 @@ module.exports = {
     })
 
     await queryInterface.addIndex('appointments', ['dentistId', 'startAt'])
+    await queryInterface.addIndex('users', ['clinicId'])
+    await queryInterface.addIndex('patients', ['clinicId'])
+    await queryInterface.addIndex('implants', ['patientId'])
+    await queryInterface.addIndex('implants', ['patientId', 'piece'])
+    await queryInterface.addIndex('implants', ['clinicId'])
+    await queryInterface.addIndex('implants', ['clinicId', 'patientId'])
     await queryInterface.addIndex('user_permissions', ['userId', 'viewKey'], {
       unique: true,
       name: 'user_permissions_userId_viewKey'
@@ -156,6 +210,7 @@ module.exports = {
     await queryInterface.dropTable('audit_logs')
     await queryInterface.dropTable('refresh_tokens')
     await queryInterface.dropTable('user_permissions')
+    await queryInterface.dropTable('implants')
     await queryInterface.dropTable('obras_sociales')
     await queryInterface.dropTable('appointments')
     await queryInterface.dropTable('blocks')
