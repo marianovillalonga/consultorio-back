@@ -1,6 +1,7 @@
 import { sequelize } from '../../src/db/sequelize.js'
 import { User, Patient, Dentist } from '../../src/models/index.js'
 import { hashPassword } from '../../src/services/auth.service.js'
+import request from 'supertest'
 
 export const shouldRunE2E = () => process.env.TEST_E2E === 'true'
 
@@ -49,4 +50,22 @@ export const ensureDentist = async ({ userId, fullName }) => {
         }
     })
     return dentist
+}
+
+const toCookieHeader = (setCookie = []) =>
+    setCookie
+        .map((cookie) => String(cookie).split(';')[0])
+        .join('; ')
+
+export const loginAndGetSession = async (app, { email, password }) => {
+    const loginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email, password })
+        .set('Content-Type', 'application/json')
+
+    return {
+        loginRes,
+        csrfToken: loginRes.headers['x-csrf-token'] || '',
+        cookieHeader: toCookieHeader(loginRes.headers['set-cookie'] || [])
+    }
 }

@@ -1,12 +1,14 @@
 import { Appointment, Dentist, Implant, Patient } from '../models/index.js'
 import { sequelize } from '../db/sequelize.js'
 import { z } from 'zod'
+import { deleteFile, getFileBase64, saveFile } from '../services/storage.service.js'
 
 const studyFileSchema = z.object({
   id: z.string().min(1).max(80),
   name: z.string().min(1).max(255),
   mime: z.string().min(1).max(200),
   data: z.string().optional(),
+  storageKey: z.string().max(400).optional(),
   description: z.string().max(500).optional(),
   createdAt: z.string().min(1).max(40),
   uploadedBy: z.number().int().optional()
@@ -233,55 +235,96 @@ const normalizeIsoDate = (value, fallback) => {
   return fallback || new Date().toISOString()
 }
 
-const mergeFiles = (incoming = [], existing = [], userId) => {
+const collectStorageKeysFromFiles = (files = []) =>
+  (Array.isArray(files) ? files : [])
+    .map((item) => item?.storageKey || null)
+    .filter(Boolean)
+
+const collectImplantStorageKeys = (implant) => [
+  ...collectStorageKeysFromFiles(implant?.planning?.files),
+  ...collectStorageKeysFromFiles(implant?.surgery?.files),
+  ...collectStorageKeysFromFiles(implant?.followups?.files),
+  ...collectStorageKeysFromFiles(implant?.prosthesis?.files)
+]
+
+const deleteStorageKeysBestEffort = async (keys = []) => {
+  for (const storageKey of keys) {
+    try {
+      await deleteFile({ storageKey })
+    } catch (err) {
+      console.error('[implants.storage] No se pudo eliminar archivo', {
+        storageKey,
+        error: err?.message || err
+      })
+    }
+  }
+}
+
+const mergeFiles = async (incoming = [], existing = [], userId) => {
   const existingMap = new Map(existing.map((item) => [item.id, item]))
   const merged = []
   for (const item of incoming) {
     const prev = existingMap.get(item.id)
-    const data = item.data && item.data.length > 0 ? item.data : prev?.data
-    if (!data) {
-      return { ok: false, error: `Falta data para el archivo ${item.name}` }
-    }
-    const estimatedBytes = estimateBase64Bytes(data)
-    if (estimatedBytes > MAX_IMPLANT_FILE_BYTES) {
-      return { ok: false, error: `Archivo ${item.name} supera el limite de ${MAX_IMPLANT_FILE_BYTES} bytes` }
-    }
-    merged.push({
+    const nextItem = {
       id: item.id,
       name: item.name,
       mime: item.mime,
-      data,
       description: item.description || '',
       createdAt: normalizeIsoDate(item.createdAt, prev?.createdAt),
       uploadedBy: item.uploadedBy || prev?.uploadedBy || userId || null
-    })
+    }
+
+    if (item.data && item.data.length > 0) {
+      const estimatedBytes = estimateBase64Bytes(item.data)
+      if (estimatedBytes > MAX_IMPLANT_FILE_BYTES) {
+        return { ok: false, error: `Archivo ${item.name} supera el limite de ${MAX_IMPLANT_FILE_BYTES} bytes` }
+      }
+      const saved = await saveFile({ namespace: 'implants', name: item.name, data: item.data })
+      nextItem.storageKey = saved.storageKey
+      merged.push(nextItem)
+      continue
+    }
+
+    if (prev?.storageKey) {
+      nextItem.storageKey = prev.storageKey
+      merged.push(nextItem)
+      continue
+    }
+
+    if (prev?.data) {
+      nextItem.data = prev.data
+      merged.push(nextItem)
+      continue
+    }
+
+    return { ok: false, error: `Falta data para el archivo ${item.name}` }
   }
   return { ok: true, value: merged }
 }
 
-const mergeImplantFiles = (payload, existing, userId) => {
+const mergeImplantFiles = async (payload, existing, userId) => {
   const next = { ...payload }
   if (payload.planning && Array.isArray(payload.planning.files)) {
     const prevFiles = Array.isArray(existing?.planning?.files) ? existing.planning.files : []
-    const merged = mergeFiles(payload.planning.files, prevFiles, userId)
+    const merged = await mergeFiles(payload.planning.files, prevFiles, userId)
     if (!merged.ok) return merged
     next.planning = { ...(payload.planning || {}), files: merged.value }
   }
   if (payload.surgery && Array.isArray(payload.surgery.files)) {
     const prevFiles = Array.isArray(existing?.surgery?.files) ? existing.surgery.files : []
-    const merged = mergeFiles(payload.surgery.files, prevFiles, userId)
+    const merged = await mergeFiles(payload.surgery.files, prevFiles, userId)
     if (!merged.ok) return merged
     next.surgery = { ...(payload.surgery || {}), files: merged.value }
   }
   if (payload.followups && Array.isArray(payload.followups.files)) {
     const prevFiles = Array.isArray(existing?.followups?.files) ? existing.followups.files : []
-    const merged = mergeFiles(payload.followups.files, prevFiles, userId)
+    const merged = await mergeFiles(payload.followups.files, prevFiles, userId)
     if (!merged.ok) return merged
     next.followups = { ...(payload.followups || {}), files: merged.value }
   }
   if (payload.prosthesis && Array.isArray(payload.prosthesis.files)) {
     const prevFiles = Array.isArray(existing?.prosthesis?.files) ? existing.prosthesis.files : []
-    const merged = mergeFiles(payload.prosthesis.files, prevFiles, userId)
+    const merged = await mergeFiles(payload.prosthesis.files, prevFiles, userId)
     if (!merged.ok) return merged
     next.prosthesis = { ...(payload.prosthesis || {}), files: merged.value }
   }
@@ -409,7 +452,7 @@ export const createPatientImplant = async (req, res) => {
   const payload = { ...parsed.data, patientId, clinicId: patient.clinicId }
   payload.createdByUserId = req.user?.id || null
   payload.updatedByUserId = req.user?.id || null
-  const merged = mergeImplantFiles(payload, null, req.user?.id)
+  const merged = await mergeImplantFiles(payload, null, req.user?.id)
   if (!merged.ok) return res.status(400).json({ message: merged.error })
 
   const implant = await Implant.create(merged.value)
@@ -446,10 +489,12 @@ export const updatePatientImplant = async (req, res) => {
   delete sanitized.updatedByUserId
   delete sanitized.statusHistory
   delete sanitized.clinicId
-  const merged = mergeImplantFiles(sanitized, implant.toJSON(), req.user?.id)
+  const before = implant.toJSON()
+  const merged = await mergeImplantFiles(sanitized, before, req.user?.id)
   if (!merged.ok) return res.status(400).json({ message: merged.error })
 
   try {
+    let updatedImplant = null
     await sequelize.transaction(async (t) => {
       const fresh = await Implant.findOne({
         where: req.user?.role === 'ADMIN'
@@ -501,8 +546,17 @@ export const updatePatientImplant = async (req, res) => {
       }
 
       await fresh.update(updatePayload, { transaction: t })
-      res.json({ implant: stripImplantFiles(fresh) })
+      updatedImplant = fresh
     })
+
+    if (res.headersSent) return
+
+    const previousKeys = new Set(collectImplantStorageKeys(before))
+    const nextKeys = new Set(collectImplantStorageKeys(updatedImplant?.toJSON ? updatedImplant.toJSON() : updatedImplant))
+    const removedKeys = Array.from(previousKeys).filter((key) => !nextKeys.has(key))
+    await deleteStorageKeysBestEffort(removedKeys)
+
+    res.json({ implant: stripImplantFiles(updatedImplant) })
   } catch (err) {
     console.error('[implants.update] Error al actualizar', err)
     res.status(500).json({ message: err?.message || 'No se pudo actualizar el implante' })
@@ -524,7 +578,9 @@ export const deletePatientImplant = async (req, res) => {
   })
   if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
+  const storageKeys = collectImplantStorageKeys(implant.toJSON())
   await implant.destroy()
+  await deleteStorageKeysBestEffort(storageKeys)
   res.json({ ok: true })
 }
 
@@ -545,14 +601,29 @@ export const getPatientImplantFile = async (req, res) => {
   if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
   const file = findFileById(implant.toJSON(), fileId)
-  if (!file || !file.data) return res.status(404).json({ message: 'Archivo no encontrado' })
+  if (!file) return res.status(404).json({ message: 'Archivo no encontrado' })
+
+  let data = file.data || ''
+  if (!data && file.storageKey) {
+    try {
+      data = await getFileBase64({ storageKey: file.storageKey })
+    } catch (err) {
+      console.error('[implants.file] Error al obtener archivo', {
+        storageKey: file.storageKey,
+        error: err?.message || err
+      })
+      return res.status(404).json({ message: 'Archivo no encontrado' })
+    }
+  }
+
+  if (!data) return res.status(404).json({ message: 'Archivo no encontrado' })
 
   res.json({
     file: {
       id: file.id,
       name: file.name,
       mime: file.mime,
-      data: file.data,
+      data,
       description: file.description || '',
       createdAt: file.createdAt,
       uploadedBy: file.uploadedBy || null

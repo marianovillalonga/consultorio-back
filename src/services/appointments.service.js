@@ -1,25 +1,32 @@
 import { Op } from 'sequelize'
 import { Appointment, Block, Availability } from '../models/index.js'
 
-export const hasCollision = async ({ dentistId, startAt, endAt }) => {
-    const collision = await Appointment.findOne({
-        where: {
+export const hasCollision = async ({ dentistId, startAt, endAt, excludeAppointmentId, transaction }) => {
+    const where = {
         dentistId,
         status: { [Op.ne]: 'CANCELADO' },
         startAt: { [Op.lt]: endAt },
         endAt: { [Op.gt]: startAt }
-        }
+    }
+    if (excludeAppointmentId) {
+        where.id = { [Op.ne]: excludeAppointmentId }
+    }
+
+    const collision = await Appointment.findOne({
+        where,
+        transaction
     })
     return Boolean(collision)
 }
 
-export const isBlocked = async ({ dentistId, startAt, endAt }) => {
+export const isBlocked = async ({ dentistId, startAt, endAt, transaction }) => {
     const block = await Block.findOne({
         where: {
         dentistId,
         fromDateTime: { [Op.lt]: endAt },
         toDateTime: { [Op.gt]: startAt }
-        }
+        },
+        transaction
     })
     return Boolean(block)
 }

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { Op } from 'sequelize'
 import { Appointment, Dentist, Patient, User } from '../models/index.js'
 import { getAvailabilityForDate, hasCollision, isBlocked } from '../services/appointments.service.js'
+import { sequelize } from '../db/sequelize.js'
 
 export const getAvailability = async (req, res) => {
     const dentistId = Number(req.query.dentistId)
@@ -90,27 +91,57 @@ export const createAppointment = async (req, res) => {
     }
 
     const week = getWeekRange(startAt)
-    const existingWeek = await Appointment.findOne({
-        where: {
-            patientId: data.patientId,
-            startAt: { [Op.gte]: week.start, [Op.lt]: week.end },
-            status: { [Op.ne]: 'CANCELADO' }
-        }
-    })
-    if (existingWeek) {
-        return res.status(409).json({ message: 'El paciente ya tiene un turno en esta semana' })
-    }
-
     const createdByRole = req.user.role === 'PACIENTE' ? 'PACIENTE' : req.user.role
+    let appt = null
 
-    const appt = await Appointment.create({
-        dentistId: data.dentistId,
-        patientId: data.patientId,
-        startAt,
-        endAt,
-        reason: data.reason || null,
-        createdByRole
+    await sequelize.transaction(async (transaction) => {
+        await Dentist.findByPk(data.dentistId, {
+            transaction,
+            lock: transaction.LOCK.UPDATE
+        })
+
+        if (await isBlocked({ dentistId: data.dentistId, startAt, endAt, transaction })) {
+            const err = new Error('Horario bloqueado')
+            err.status = 409
+            throw err
+        }
+
+        if (await hasCollision({ dentistId: data.dentistId, startAt, endAt, transaction })) {
+            const err = new Error('Turno ya ocupado')
+            err.status = 409
+            throw err
+        }
+
+        const existingWeek = await Appointment.findOne({
+            where: {
+                patientId: data.patientId,
+                startAt: { [Op.gte]: week.start, [Op.lt]: week.end },
+                status: { [Op.ne]: 'CANCELADO' }
+            },
+            transaction
+        })
+        if (existingWeek) {
+            const err = new Error('El paciente ya tiene un turno en esta semana')
+            err.status = 409
+            throw err
+        }
+
+        appt = await Appointment.create({
+            dentistId: data.dentistId,
+            patientId: data.patientId,
+            startAt,
+            endAt,
+            reason: data.reason || null,
+            createdByRole
+        }, { transaction })
+    }).catch((err) => {
+        if (err?.status === 409) {
+            return res.status(409).json({ message: err.message })
+        }
+        throw err
     })
+
+    if (res.headersSent) return
 
     res.status(201).json({ appointment: appt })
 }
@@ -267,30 +298,78 @@ export const rescheduleAppointment = async (req, res) => {
     if (await isBlocked({ dentistId: appt.dentistId, startAt, endAt })) {
         return res.status(409).json({ message: 'Horario bloqueado' })
     }
-    if (await hasCollision({ dentistId: appt.dentistId, startAt, endAt })) {
+    if (await hasCollision({ dentistId: appt.dentistId, startAt, endAt, excludeAppointmentId: appt.id })) {
         return res.status(409).json({ message: 'Turno ya ocupado' })
     }
 
     const week = getWeekRange(startAt)
-    const existingWeek = await Appointment.findOne({
-        where: {
-            id: { [Op.ne]: appt.id },
-            patientId: appt.patientId,
-            startAt: { [Op.gte]: week.start, [Op.lt]: week.end },
-            status: { [Op.ne]: 'CANCELADO' }
+    let updatedAppt = null
+
+    await sequelize.transaction(async (transaction) => {
+        await Dentist.findByPk(appt.dentistId, {
+            transaction,
+            lock: transaction.LOCK.UPDATE
+        })
+
+        const lockedAppt = await Appointment.findByPk(appt.id, {
+            transaction,
+            lock: transaction.LOCK.UPDATE
+        })
+        if (!lockedAppt) {
+            const err = new Error('Turno no encontrado')
+            err.status = 404
+            throw err
         }
+
+        if (await isBlocked({ dentistId: lockedAppt.dentistId, startAt, endAt, transaction })) {
+            const err = new Error('Horario bloqueado')
+            err.status = 409
+            throw err
+        }
+
+        if (await hasCollision({
+            dentistId: lockedAppt.dentistId,
+            startAt,
+            endAt,
+            excludeAppointmentId: lockedAppt.id,
+            transaction
+        })) {
+            const err = new Error('Turno ya ocupado')
+            err.status = 409
+            throw err
+        }
+
+        const existingWeek = await Appointment.findOne({
+            where: {
+                id: { [Op.ne]: lockedAppt.id },
+                patientId: lockedAppt.patientId,
+                startAt: { [Op.gte]: week.start, [Op.lt]: week.end },
+                status: { [Op.ne]: 'CANCELADO' }
+            },
+            transaction
+        })
+        if (existingWeek) {
+            const err = new Error('El paciente ya tiene un turno en esta semana')
+            err.status = 409
+            throw err
+        }
+
+        lockedAppt.startAt = startAt
+        lockedAppt.endAt = endAt
+        if (parsed.data.reason !== undefined) {
+            lockedAppt.reason = parsed.data.reason || null
+        }
+        lockedAppt.status = 'CONFIRMADO'
+        await lockedAppt.save({ transaction })
+        updatedAppt = lockedAppt
+    }).catch((err) => {
+        if (err?.status === 409 || err?.status === 404) {
+            return res.status(err.status).json({ message: err.message })
+        }
+        throw err
     })
-    if (existingWeek) {
-        return res.status(409).json({ message: 'El paciente ya tiene un turno en esta semana' })
-    }
 
-    appt.startAt = startAt
-    appt.endAt = endAt
-    if (parsed.data.reason !== undefined) {
-        appt.reason = parsed.data.reason || null
-    }
-    appt.status = 'CONFIRMADO'
-    await appt.save()
+    if (res.headersSent) return
 
-    res.json({ appointment: appt })
+    res.json({ appointment: updatedAppt })
 }

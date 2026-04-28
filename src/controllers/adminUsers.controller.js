@@ -1,7 +1,8 @@
 import { z } from 'zod'
-import { User } from '../models/index.js'
+import { Dentist, User } from '../models/index.js'
 import { getUserByEmail, hashPassword, validatePasswordStrength } from '../services/auth.service.js'
 import { logAudit } from '../services/audit.service.js'
+import { sequelize } from '../db/sequelize.js'
 
 export const listUsers = async (req, res) => {
     const where = { role: 'ODONTOLOGO' }
@@ -32,19 +33,50 @@ const createUserSchema = z.object({
 export const createUser = async (req, res) => {
     const data = createUserSchema.parse(req.body)
     if (!validatePasswordStrength(data.password)) {
-        return res.status(400).json({ message: 'La contraseña es debil' })
+        return res.status(400).json({ message: 'La contrasena es debil' })
     }
 
     const exists = await getUserByEmail(data.email)
     if (exists) return res.status(409).json({ message: 'Email ya registrado' })
 
     const passwordHash = await hashPassword(data.password)
-    const user = await User.create({
-        email: data.email,
-        passwordHash,
-        role: 'ODONTOLOGO',
-        active: data.active ?? true
+    let user = null
+
+    await sequelize.transaction(async (transaction) => {
+        user = await User.create({
+            email: data.email,
+            passwordHash,
+            role: 'ODONTOLOGO',
+            active: data.active ?? true
+        }, { transaction })
+
+        const existingDentist = await Dentist.findOne({
+            where: { userId: user.id },
+            transaction
+        })
+        if (existingDentist) {
+            const err = new Error('Ya existe un perfil de odontologo para este usuario')
+            err.status = 409
+            throw err
+        }
+
+        await Dentist.create({
+            userId: user.id,
+            fullName: null,
+            photoUrl: null,
+            bio: null,
+            specialties: JSON.stringify([]),
+            license: null,
+            specialty: null
+        }, { transaction })
+    }).catch((err) => {
+        if (err?.status === 409) {
+            return res.status(409).json({ message: err.message })
+        }
+        throw err
     })
+
+    if (res.headersSent) return
 
     await logAudit({ userId: req.user.id, action: 'ADMIN_CREATE_USER', details: { targetUserId: user.id } })
     res.status(201).json({
@@ -81,7 +113,7 @@ export const updateUser = async (req, res) => {
     }
 
     if (parsed.data.password && !validatePasswordStrength(parsed.data.password)) {
-        return res.status(400).json({ message: 'La contraseña es debil' })
+        return res.status(400).json({ message: 'La contrasena es debil' })
     }
 
     if (parsed.data.email && parsed.data.email !== user.email) {
