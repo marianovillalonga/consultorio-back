@@ -161,13 +161,23 @@ const mergeStudyFiles = async (incomingRaw, existingRaw, userId) => {
             if (estimatedBytes > MAX_STUDY_FILE_BYTES) {
                 return { ok: false, error: `Archivo ${item.name} supera el limite de ${MAX_STUDY_FILE_BYTES} bytes` }
             }
-            const saved = await uploadFile({
-                namespace: 'patients-studies',
-                name: item.name,
-                data: item.data,
-                mime: item.mime
-            })
-            nextItem.storageKey = saved.storageKey
+            try {
+                const saved = await uploadFile({
+                    namespace: 'patients-studies',
+                    name: item.name,
+                    data: item.data,
+                    mime: item.mime
+                })
+                nextItem.storageKey = saved.storageKey
+            } catch (err) {
+                logger.warn('patients_storage_upload_failed_inline_fallback', {
+                    fileName: item.name,
+                    userId: userId || null,
+                    error: err
+                })
+                nextItem.data = item.data
+                nextItem.storageKey = null
+            }
             merged.push(nextItem)
             continue
         }
