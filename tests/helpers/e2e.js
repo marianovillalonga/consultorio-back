@@ -18,23 +18,24 @@ export const createTestEmail = (prefix = 'e2e') => {
     return `${prefix}.${stamp}@example.com`
 }
 
-export const ensureUser = async ({ email, password, role }) => {
+export const ensureUser = async ({ email, password, role, clinicId = 1 }) => {
     const passwordHash = await hashPassword(password)
     const [user, created] = await User.findOrCreate({
         where: { email },
-        defaults: { email, passwordHash, role, activeStatus: true, active: true }
+        defaults: { email, passwordHash, role, clinicId, activeStatus: true, active: true }
     })
     if (!created) {
-        await user.update({ passwordHash, role, activeStatus: true, active: true })
+        await user.update({ passwordHash, role, clinicId, activeStatus: true, active: true })
     }
     return user
 }
 
-export const ensurePatient = async ({ fullName, email }) => {
+export const ensurePatient = async ({ fullName, email, clinicId = 1 }) => {
     const [patient] = await Patient.findOrCreate({
         where: { email },
-        defaults: { fullName, email }
+        defaults: { fullName, email, clinicId }
     })
+    await patient.update({ fullName, email, clinicId })
     return patient
 }
 

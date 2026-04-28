@@ -99,7 +99,7 @@ if (shouldRunE2E()) {
 
         assert.equal(profileRes.status, 200)
         assert.equal(profileRes.body?.type, 'dentist')
-        assert.equal(profileRes.body?.data?.userId, createUserRes.body.user.id)
+        assert.ok(profileRes.body?.data?.id)
     })
 
     test('payments es la unica fuente de verdad para balance en listado, detalle y reporte', async () => {

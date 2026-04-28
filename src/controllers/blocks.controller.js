@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { Block, Dentist } from '../models/index.js'
+import { findScopedDentistById, findScopedDentistByUserId } from '../utils/clinicScope.js'
 
 const blockSchema = z.object({
     fromDateTime: z.string().datetime(),
@@ -8,9 +9,11 @@ const blockSchema = z.object({
 })
 
 const ensureOwnership = async (req, dentistId) => {
-    if (req.user.role === 'ADMIN') return true
+    if (req.user.role === 'ADMIN') {
+        return Boolean(await findScopedDentistById(req.clinicId, dentistId))
+    }
     if (req.user.role !== 'ODONTOLOGO') return false
-    const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+    const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
     return dentist && dentist.id === dentistId
 }
 

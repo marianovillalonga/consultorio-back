@@ -23,6 +23,8 @@ import {
 } from '../services/auth.service.js'
 import { logAudit } from '../services/audit.service.js'
 import { sendActivationEmail, sendPasswordResetEmail } from '../services/mail.service.js'
+import logger from '../lib/logger.js'
+import { sanitizeSessionUser } from '../utils/sanitizers.js'
 
 const registerSchema = z.object({
     email: z.string().email(),
@@ -95,7 +97,7 @@ export const registerPatient = async (req, res) => {
             await sendActivationEmail({ to: user.email, link })
         }
         await logAudit({ userId: user.id, action: 'REGISTER', details: { email: user.email } })
-        res.status(201).json({ user: { id: user.id, role: user.role, email: user.email }, patient })
+        res.status(201).json({ user: sanitizeSessionUser(user), patient })
     } catch (err) {
         await tx.rollback()
         throw err
@@ -157,11 +159,11 @@ export const login = async (req, res) => {
     })
     const csrfToken = setAuthCookies(res, token, refreshToken)
     await logAudit({ userId: user.id, action: 'LOGIN', details: { email: user.email } })
-    res.json({ user: { id: user.id, role: user.role, email: user.email }, csrfToken })
+    res.json({ user: sanitizeSessionUser(user), csrfToken })
 }
 
 export const me = async (req, res) => {
-    res.json({ user: req.user })
+    res.json({ user: sanitizeSessionUser(req.user) })
 }
 
 export const refresh = async (req, res) => {
@@ -179,7 +181,7 @@ export const refresh = async (req, res) => {
                     action: 'REFRESH_REUSE',
                     details: { ip: req.ip, ua: req.headers['user-agent'] || '' }
                 })
-                console.warn('[auth.refresh] Refresh token reutilizado', {
+                logger.warn('auth_refresh_reuse_detected', {
                     userId: payload.sub,
                     ip: req.ip
                 })
@@ -209,7 +211,7 @@ export const refresh = async (req, res) => {
     })
     await revokeRefreshToken(token)
     const csrfToken = setAuthCookies(res, nextAccess, nextRefresh)
-    res.json({ user: { id: user.id, role: user.role, email: user.email }, csrfToken })
+    res.json({ user: sanitizeSessionUser(user), csrfToken })
 }
 
 export const logout = async (req, res) => {

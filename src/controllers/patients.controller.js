@@ -1,6 +1,9 @@
 import { Patient, Appointment, Dentist, User } from '../models/index.js'
 import { z } from 'zod'
-import { deleteFile, getFileBase64, saveFile } from '../services/storage.service.js'
+import { deleteFile, getFileBase64, uploadFile } from '../services/storage.service.js'
+import { findScopedDentistByUserId, findScopedPatientById } from '../utils/clinicScope.js'
+import { sanitizeDentistSummary } from '../utils/sanitizers.js'
+import logger from '../lib/logger.js'
 
 const normalizePayments = (raw) => {
     if (!raw) return []
@@ -119,9 +122,9 @@ const deleteStorageKeysBestEffort = async (keys = []) => {
         try {
             await deleteFile({ storageKey })
         } catch (err) {
-            console.error('[patients.storage] No se pudo eliminar archivo', {
+            logger.error('patients_storage_delete_failed', {
                 storageKey,
-                error: err?.message || err
+                error: err
             })
         }
     }
@@ -158,7 +161,12 @@ const mergeStudyFiles = async (incomingRaw, existingRaw, userId) => {
             if (estimatedBytes > MAX_STUDY_FILE_BYTES) {
                 return { ok: false, error: `Archivo ${item.name} supera el limite de ${MAX_STUDY_FILE_BYTES} bytes` }
             }
-            const saved = await saveFile({ namespace: 'patients-studies', name: item.name, data: item.data })
+            const saved = await uploadFile({
+                namespace: 'patients-studies',
+                name: item.name,
+                data: item.data,
+                mime: item.mime
+            })
             nextItem.storageKey = saved.storageKey
             merged.push(nextItem)
             continue
@@ -192,25 +200,37 @@ const serializePatient = (patient) => {
     return json
 }
 
+const getAccessiblePatient = async (req, id) => {
+    if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
+        if (!dentist) return null
+
+        const linked = await Appointment.findOne({
+            where: { dentistId: dentist.id, patientId: id },
+            include: [{ model: Patient, where: { clinicId: req.clinicId }, attributes: [], required: true }]
+        })
+        if (!linked) return null
+    }
+
+    return findScopedPatientById(req.clinicId, id)
+}
+
 // Listar pacientes con datos basicos y saldo
 export const listPatients = async (req, res) => {
-    let where = undefined
-    if (req.user?.role === 'ADMIN') {
-        // admin ve todos
-    } else if (req.user?.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+    let where = { clinicId: req.clinicId }
+    if (req.user?.role === 'ODONTOLOGO') {
+        const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
         if (!dentist) return res.json({ patients: [] })
         const rows = await Appointment.findAll({
             where: { dentistId: dentist.id },
+            include: [{ model: Patient, where: { clinicId: req.clinicId }, attributes: [], required: true }],
             attributes: ['patientId'],
-            group: ['patientId'],
+            group: ['Appointment.patientId'],
             raw: true
         })
         const patientIds = rows.map((row) => row.patientId).filter(Boolean)
         if (patientIds.length === 0) return res.json({ patients: [] })
-        where = { id: patientIds, clinicId: req.user?.clinicId }
-    } else {
-        where = { clinicId: req.user?.clinicId }
+        where = { id: patientIds, clinicId: req.clinicId }
     }
 
     const patients = await Patient.findAll({
@@ -242,18 +262,7 @@ export const getPatient = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
-    let patient = null
-    if (req.user?.role === 'ADMIN') {
-        patient = await Patient.findByPk(id)
-    } else if (req.user?.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
-        if (!dentist) return res.status(404).json({ message: 'Paciente no encontrado' })
-        const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId: id } })
-        if (!linked) return res.status(404).json({ message: 'Paciente no encontrado' })
-        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
-    } else {
-        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
-    }
+    const patient = await getAccessiblePatient(req, id)
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
     res.json({ patient: serializePatient(patient) })
@@ -264,23 +273,12 @@ export const getPatientAppointments = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
-    let patient = null
-    if (req.user?.role === 'ADMIN') {
-        patient = await Patient.findByPk(id)
-    } else if (req.user?.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
-        if (!dentist) return res.status(404).json({ message: 'Paciente no encontrado' })
-        const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId: id } })
-        if (!linked) return res.status(404).json({ message: 'Paciente no encontrado' })
-        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
-    } else {
-        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
-    }
+    const patient = await getAccessiblePatient(req, id)
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
     const where = { patientId: id }
     if (req.user?.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+        const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
         if (!dentist) return res.json({ appointments: [] })
         where.dentistId = dentist.id
     }
@@ -289,12 +287,12 @@ export const getPatientAppointments = async (req, res) => {
         where,
         order: [['startAt', 'DESC']],
         limit: 10,
-        include: [{ model: Dentist, include: [{ model: User, attributes: ['email'] }] }]
+        include: [{ model: Dentist, include: [{ model: User, attributes: [] }] }]
     })
 
     const serialized = appts.map((a) => {
         const json = a.toJSON()
-        return { ...json, dentist: json.Dentist }
+        return { ...json, dentist: json.Dentist ? sanitizeDentistSummary(json.Dentist) : undefined }
     })
 
     res.json({ appointments: serialized })
@@ -304,7 +302,7 @@ export const createPatient = async (req, res) => {
     const parsed = createPatientSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Datos invalidos', errors: parsed.error.errors })
 
-    const payload = { ...parsed.data, clinicId: req.user?.clinicId }
+    const payload = { ...parsed.data, clinicId: req.clinicId }
     payload.balance = computeBalance(normalizePayments(payload.payments))
     if (payload.studiesFiles !== undefined) {
         const merged = await mergeStudyFiles(payload.studiesFiles, null, req.user?.id)
@@ -323,18 +321,7 @@ export const updatePatient = async (req, res) => {
     const parsed = updatePatientSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Datos invalidos', errors: parsed.error.errors })
 
-    let patient = null
-    if (req.user?.role === 'ADMIN') {
-        patient = await Patient.findByPk(id)
-    } else if (req.user?.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
-        if (!dentist) return res.status(404).json({ message: 'Paciente no encontrado' })
-        const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId: id } })
-        if (!linked) return res.status(404).json({ message: 'Paciente no encontrado' })
-        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
-    } else {
-        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
-    }
+    const patient = await getAccessiblePatient(req, id)
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
     const before = patient.toJSON()
@@ -360,7 +347,11 @@ export const updatePatient = async (req, res) => {
         }
         res.json({ patient: serializePatient(patient) })
     } catch (err) {
-        console.error('[patients.update] Error al actualizar', err)
+        logger.error('patients_update_failed', {
+            patientId: id,
+            userId: req.user?.id || null,
+            error: err
+        })
         res.status(500).json({ message: err?.message || 'No se pudo actualizar el paciente' })
     }
 }
@@ -370,18 +361,7 @@ export const getPatientStudyFile = async (req, res) => {
     const studyId = String(req.params.studyId || '')
     if (!id || !studyId) return res.status(400).json({ message: 'Parametros invalidos' })
 
-    let patient = null
-    if (req.user?.role === 'ADMIN') {
-        patient = await Patient.findByPk(id)
-    } else if (req.user?.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
-        if (!dentist) return res.status(404).json({ message: 'Paciente no encontrado' })
-        const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId: id } })
-        if (!linked) return res.status(404).json({ message: 'Paciente no encontrado' })
-        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
-    } else {
-        patient = await Patient.findOne({ where: { id, clinicId: req.user?.clinicId } })
-    }
+    const patient = await getAccessiblePatient(req, id)
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
     const parsed = parseStudyFiles(patient.studiesFiles)
@@ -395,9 +375,11 @@ export const getPatientStudyFile = async (req, res) => {
         try {
             data = await getFileBase64({ storageKey: item.storageKey })
         } catch (err) {
-            console.error('[patients.file] Error al obtener archivo', {
+            logger.error('patients_file_read_failed', {
                 storageKey: item.storageKey,
-                error: err?.message || err
+                patientId: id,
+                studyId,
+                error: err
             })
             return res.status(404).json({ message: 'Archivo no encontrado' })
         }

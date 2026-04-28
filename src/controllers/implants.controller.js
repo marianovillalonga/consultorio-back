@@ -1,7 +1,9 @@
 import { Appointment, Dentist, Implant, Patient } from '../models/index.js'
 import { sequelize } from '../db/sequelize.js'
 import { z } from 'zod'
-import { deleteFile, getFileBase64, saveFile } from '../services/storage.service.js'
+import { deleteFile, getFileBase64, uploadFile } from '../services/storage.service.js'
+import logger from '../lib/logger.js'
+import { findScopedDentistByUserId, findScopedPatientById } from '../utils/clinicScope.js'
 
 const studyFileSchema = z.object({
   id: z.string().min(1).max(80),
@@ -252,9 +254,9 @@ const deleteStorageKeysBestEffort = async (keys = []) => {
     try {
       await deleteFile({ storageKey })
     } catch (err) {
-      console.error('[implants.storage] No se pudo eliminar archivo', {
+      logger.error('implants_storage_delete_failed', {
         storageKey,
-        error: err?.message || err
+        error: err
       })
     }
   }
@@ -279,7 +281,12 @@ const mergeFiles = async (incoming = [], existing = [], userId) => {
       if (estimatedBytes > MAX_IMPLANT_FILE_BYTES) {
         return { ok: false, error: `Archivo ${item.name} supera el limite de ${MAX_IMPLANT_FILE_BYTES} bytes` }
       }
-      const saved = await saveFile({ namespace: 'implants', name: item.name, data: item.data })
+      const saved = await uploadFile({
+        namespace: 'implants',
+        name: item.name,
+        data: item.data,
+        mime: item.mime
+      })
       nextItem.storageKey = saved.storageKey
       merged.push(nextItem)
       continue
@@ -387,16 +394,16 @@ const deriveStatusFromControls = (controls = []) => {
 }
 
 const getPatientForAccess = async (req, patientId) => {
-  if (req.user?.role === 'ADMIN') {
-    return Patient.findByPk(patientId)
-  }
   if (req.user?.role === 'ODONTOLOGO') {
-    const dentist = await Dentist.findOne({ where: { userId: req.user.id } })
+    const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
     if (!dentist) return null
-    const linked = await Appointment.findOne({ where: { dentistId: dentist.id, patientId } })
+    const linked = await Appointment.findOne({
+      where: { dentistId: dentist.id, patientId },
+      include: [{ model: Patient, where: { clinicId: req.clinicId }, attributes: [], required: true }]
+    })
     if (!linked) return null
   }
-  return Patient.findOne({ where: { id: patientId, clinicId: req.user?.clinicId } })
+  return findScopedPatientById(req.clinicId, patientId)
 }
 
 export const listPatientImplants = async (req, res) => {
@@ -407,7 +414,7 @@ export const listPatientImplants = async (req, res) => {
   if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
   const implants = await Implant.findAll({
-    where: req.user?.role === 'ADMIN' ? { patientId } : { patientId, clinicId: patient.clinicId },
+    where: { patientId, clinicId: patient.clinicId },
     order: [['createdAt', 'DESC']]
   })
   const serialized = implants.map((i) => stripImplantFiles(i))
@@ -423,9 +430,7 @@ export const getPatientImplant = async (req, res) => {
   if (!patient) return res.status(404).json({ message: 'Implante no encontrado' })
 
   const implant = await Implant.findOne({
-    where: req.user?.role === 'ADMIN'
-      ? { id: implantId, patientId }
-      : { id: implantId, patientId, clinicId: patient.clinicId }
+    where: { id: implantId, patientId, clinicId: patient.clinicId }
   })
   if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
@@ -441,8 +446,11 @@ export const createPatientImplant = async (req, res) => {
 
   const parsed = createImplantSchema.safeParse(req.body)
   if (!parsed.success) {
-    console.error('[implants.create] Datos invalidos', parsed.error)
-    console.error('[implants.create] Issues', parsed.error?.issues)
+    logger.warn('implants_create_invalid_payload', {
+      patientId,
+      userId: req.user?.id || null,
+      error: parsed.error
+    })
     return res.status(400).json({
       message: 'Datos invalidos',
       errors: parsed.error?.issues || parsed.error?.errors
@@ -468,16 +476,18 @@ export const updatePatientImplant = async (req, res) => {
   if (!patient) return res.status(404).json({ message: 'Implante no encontrado' })
 
   const implant = await Implant.findOne({
-    where: req.user?.role === 'ADMIN'
-      ? { id: implantId, patientId }
-      : { id: implantId, patientId, clinicId: patient.clinicId }
+    where: { id: implantId, patientId, clinicId: patient.clinicId }
   })
   if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
   const parsed = updateImplantSchema.safeParse(req.body)
   if (!parsed.success) {
-    console.error('[implants.update] Datos invalidos', parsed.error)
-    console.error('[implants.update] Issues', parsed.error?.issues)
+    logger.warn('implants_update_invalid_payload', {
+      patientId,
+      implantId,
+      userId: req.user?.id || null,
+      error: parsed.error
+    })
     return res.status(400).json({
       message: 'Datos invalidos',
       errors: parsed.error?.issues || parsed.error?.errors
@@ -497,9 +507,7 @@ export const updatePatientImplant = async (req, res) => {
     let updatedImplant = null
     await sequelize.transaction(async (t) => {
       const fresh = await Implant.findOne({
-        where: req.user?.role === 'ADMIN'
-          ? { id: implantId, patientId }
-          : { id: implantId, patientId, clinicId: patient.clinicId },
+        where: { id: implantId, patientId, clinicId: patient.clinicId },
         transaction: t,
         lock: t.LOCK.UPDATE
       })
@@ -558,7 +566,12 @@ export const updatePatientImplant = async (req, res) => {
 
     res.json({ implant: stripImplantFiles(updatedImplant) })
   } catch (err) {
-    console.error('[implants.update] Error al actualizar', err)
+    logger.error('implants_update_failed', {
+      patientId,
+      implantId,
+      userId: req.user?.id || null,
+      error: err
+    })
     res.status(500).json({ message: err?.message || 'No se pudo actualizar el implante' })
   }
 }
@@ -572,9 +585,7 @@ export const deletePatientImplant = async (req, res) => {
   if (!patient) return res.status(404).json({ message: 'Implante no encontrado' })
 
   const implant = await Implant.findOne({
-    where: req.user?.role === 'ADMIN'
-      ? { id: implantId, patientId }
-      : { id: implantId, patientId, clinicId: patient.clinicId }
+    where: { id: implantId, patientId, clinicId: patient.clinicId }
   })
   if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
@@ -594,9 +605,7 @@ export const getPatientImplantFile = async (req, res) => {
   if (!patient) return res.status(404).json({ message: 'Implante no encontrado' })
 
   const implant = await Implant.findOne({
-    where: req.user?.role === 'ADMIN'
-      ? { id: implantId, patientId }
-      : { id: implantId, patientId, clinicId: patient.clinicId }
+    where: { id: implantId, patientId, clinicId: patient.clinicId }
   })
   if (!implant) return res.status(404).json({ message: 'Implante no encontrado' })
 
@@ -608,9 +617,12 @@ export const getPatientImplantFile = async (req, res) => {
     try {
       data = await getFileBase64({ storageKey: file.storageKey })
     } catch (err) {
-      console.error('[implants.file] Error al obtener archivo', {
+      logger.error('implants_file_read_failed', {
         storageKey: file.storageKey,
-        error: err?.message || err
+        patientId,
+        implantId,
+        fileId,
+        error: err
       })
       return res.status(404).json({ message: 'Archivo no encontrado' })
     }

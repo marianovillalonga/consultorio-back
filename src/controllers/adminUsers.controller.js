@@ -3,9 +3,10 @@ import { Dentist, User } from '../models/index.js'
 import { getUserByEmail, hashPassword, validatePasswordStrength } from '../services/auth.service.js'
 import { logAudit } from '../services/audit.service.js'
 import { sequelize } from '../db/sequelize.js'
+import { sanitizeAdminUser } from '../utils/sanitizers.js'
 
 export const listUsers = async (req, res) => {
-    const where = { role: 'ODONTOLOGO' }
+    const where = { role: 'ODONTOLOGO', clinicId: req.clinicId }
 
     const users = await User.findAll({
         where,
@@ -13,14 +14,7 @@ export const listUsers = async (req, res) => {
     })
 
     res.json({
-        users: users.map((u) => ({
-            id: u.id,
-            email: u.email,
-            role: u.role,
-            active: u.active,
-            createdAt: u.createdAt,
-            updatedAt: u.updatedAt
-        }))
+        users: users.map((u) => sanitizeAdminUser(u))
     })
 }
 
@@ -47,6 +41,7 @@ export const createUser = async (req, res) => {
             email: data.email,
             passwordHash,
             role: 'ODONTOLOGO',
+            clinicId: req.clinicId,
             active: data.active ?? true
         }, { transaction })
 
@@ -80,14 +75,7 @@ export const createUser = async (req, res) => {
 
     await logAudit({ userId: req.user.id, action: 'ADMIN_CREATE_USER', details: { targetUserId: user.id } })
     res.status(201).json({
-        user: {
-            id: user.id,
-            email: user.email,
-            role: user.role,
-            active: user.active,
-            createdAt: user.createdAt,
-            updatedAt: user.updatedAt
-        }
+        user: sanitizeAdminUser(user)
     })
 }
 
@@ -101,7 +89,7 @@ export const updateUser = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
-    const user = await User.findByPk(id)
+    const user = await User.findOne({ where: { id, clinicId: req.clinicId } })
     if (!user) return res.status(404).json({ message: 'Usuario no encontrado' })
     if (user.role !== 'ODONTOLOGO') {
         return res.status(400).json({ message: 'Solo se pueden editar cuentas de odontologo' })
@@ -131,13 +119,6 @@ export const updateUser = async (req, res) => {
     await logAudit({ userId: req.user.id, action: 'ADMIN_UPDATE_USER', details: { targetUserId: user.id } })
 
     res.json({
-        user: {
-            id: user.id,
-            email: user.email,
-            role: user.role,
-            active: user.active,
-            createdAt: user.createdAt,
-            updatedAt: user.updatedAt
-        }
+        user: sanitizeAdminUser(user)
     })
 }

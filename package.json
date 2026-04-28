@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "lint": "node src/scripts/lint.js",
+    "validate:env": "node src/scripts/validateEnv.js",
+    "test:unit": "node --test \"tests/unit/**/*.test.js\"",
     "seed:demo": "node src/scripts/seedDemo.js",
-    "test": "node --test --test-sequential",
-    "test:smoke": "node --test --test-sequential tests/smoke",
-    "test:e2e": "cross-env TEST_E2E=true node --test --test-sequential tests/e2e",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "test:smoke": "node --test \"tests/smoke/**/*.test.js\"",
+    "test:e2e": "cross-env TEST_E2E=true TEST_STORAGE_MOCK=true node --test \"tests/e2e/**/*.test.js\"",
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:undo:all": "sequelize-cli db:migrate:undo:all"
@@ -19,6 +22,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.918.0",
+    "@aws-sdk/s3-request-presigner": "^3.918.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

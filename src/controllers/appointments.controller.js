@@ -3,18 +3,33 @@ import { Op } from 'sequelize'
 import { Appointment, Dentist, Patient, User } from '../models/index.js'
 import { getAvailabilityForDate, hasCollision, isBlocked } from '../services/appointments.service.js'
 import { sequelize } from '../db/sequelize.js'
+import {
+    findScopedAppointmentById,
+    findScopedDentistById,
+    findScopedDentistByUserId,
+    findScopedPatientByEmail,
+    findScopedPatientById,
+    scopedPatientInclude,
+    scopedUserInclude
+} from '../utils/clinicScope.js'
+import { sanitizeDentistSummary, sanitizePatientSummary } from '../utils/sanitizers.js'
+
+const serializeAppointment = (appointment) => {
+    const json = appointment?.toJSON ? appointment.toJSON() : { ...appointment }
+    const { Dentist, Patient, ...rest } = json
+    return {
+        ...rest,
+        dentist: Dentist ? sanitizeDentistSummary(Dentist) : undefined,
+        patient: Patient ? sanitizePatientSummary(Patient) : undefined
+    }
+}
 
 export const getAvailability = async (req, res) => {
     const dentistId = Number(req.query.dentistId)
     const date = String(req.query.date || '') // "YYYY-MM-DD"
     if (!dentistId || !date) return res.status(400).json({ message: 'dentistId y date son requeridos' })
 
-    const dentist = await Dentist.findOne({
-        where: { id: dentistId },
-        include: req.user?.role === 'ADMIN'
-            ? [{ model: User, attributes: [] }]
-            : [{ model: User, where: { clinicId: req.user?.clinicId }, attributes: [] }]
-    })
+    const dentist = await findScopedDentistById(req.clinicId, dentistId)
     if (!dentist) return res.status(404).json({ message: 'Dentista no encontrado' })
 
     const d = new Date(`${date}T00:00:00`)
@@ -51,27 +66,15 @@ export const createAppointment = async (req, res) => {
 
     if (!(startAt < endAt)) return res.status(400).json({ message: 'Rango horario invalido' })
 
-    const dentist = await Dentist.findOne({
-        where: { id: data.dentistId },
-        include: req.user?.role === 'ADMIN'
-            ? [{ model: User, attributes: [] }]
-            : [{ model: User, where: { clinicId: req.user?.clinicId }, attributes: [] }]
-    })
+    const dentist = await findScopedDentistById(req.clinicId, data.dentistId)
     if (!dentist) return res.status(404).json({ message: 'Dentista no encontrado' })
 
-    const patient = req.user?.role === 'ADMIN'
-        ? await Patient.findByPk(data.patientId)
-        : await Patient.findOne({ where: { id: data.patientId, clinicId: req.user?.clinicId } })
+    const patient = await findScopedPatientById(req.clinicId, data.patientId)
     if (!patient) return res.status(404).json({ message: 'Paciente no encontrado' })
 
     if (req.user.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({
-            where: { userId: req.user.id },
-            include: req.user?.role === 'ADMIN'
-                ? [{ model: User, attributes: [] }]
-                : [{ model: User, where: { clinicId: req.user?.clinicId }, attributes: [] }]
-        })
-        if (!dentist || dentist.id !== data.dentistId) {
+        const ownDentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
+        if (!ownDentist || ownDentist.id !== data.dentistId) {
             return res.status(403).json({ message: 'No puedes crear turnos para otro odontologo' })
         }
     }
@@ -95,10 +98,17 @@ export const createAppointment = async (req, res) => {
     let appt = null
 
     await sequelize.transaction(async (transaction) => {
-        await Dentist.findByPk(data.dentistId, {
+        const lockedDentist = await Dentist.findOne({
+            where: { id: data.dentistId },
+            include: [{ model: User, where: { clinicId: req.clinicId }, attributes: [], required: true }],
             transaction,
             lock: transaction.LOCK.UPDATE
         })
+        if (!lockedDentist) {
+            const err = new Error('Dentista no encontrado')
+            err.status = 404
+            throw err
+        }
 
         if (await isBlocked({ dentistId: data.dentistId, startAt, endAt, transaction })) {
             const err = new Error('Horario bloqueado')
@@ -135,56 +145,44 @@ export const createAppointment = async (req, res) => {
             createdByRole
         }, { transaction })
     }).catch((err) => {
-        if (err?.status === 409) {
-            return res.status(409).json({ message: err.message })
+        if (err?.status === 404 || err?.status === 409) {
+            return res.status(err.status).json({ message: err.message })
         }
         throw err
     })
 
     if (res.headersSent) return
 
-    res.status(201).json({ appointment: appt })
+    res.status(201).json({ appointment: serializeAppointment(appt) })
 }
 
 export const myAppointments = async (req, res) => {
     const where = {}
     if (req.user.role === 'PACIENTE') {
-        const patient = await Patient.findOne({ where: { email: req.user.email, clinicId: req.user?.clinicId } })
+        const patient = await findScopedPatientByEmail(req.clinicId, req.user.email)
         if (!patient) return res.json({ appointments: [] })
         where.patientId = patient.id
     } else if (req.user.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({
-            where: { userId: req.user.id },
-            include: [{ model: User, where: { clinicId: req.user?.clinicId }, attributes: [] }]
-        })
+        const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
         if (!dentist) return res.json({ appointments: [] })
         where.dentistId = dentist.id
-    } else if (req.user.role === 'ADMIN') {
-        // admin ve todos
+    } else if (req.user.role === 'RECEPCION' || req.user.role === 'ADMIN') {
+        // recepcion/admin ven todos dentro de su clinica
     } else {
         return res.status(403).json({ message: 'Rol sin turnos asociados' })
     }
-
-    const patientInclude = req.user?.role === 'ADMIN'
-        ? { model: Patient }
-        : { model: Patient, where: { clinicId: req.user?.clinicId } }
 
     const appointments = await Appointment.findAll({
         where,
         order: [['startAt', 'ASC']],
         include: [
-            { model: Dentist, include: [{ model: User, attributes: ['email', 'role'] }] },
-            patientInclude
+            { model: Dentist, include: [scopedUserInclude(req.clinicId, [])], required: true },
+            scopedPatientInclude(req.clinicId)
         ]
     })
 
     const serialized = appointments.map((a) => {
-        const json = a.toJSON()
-        return {
-            ...json,
-            dentist: json.Dentist,
-            patient: json.Patient
-        }
+        return serializeAppointment(a)
     })
 
     res.json({ appointments: serialized })
@@ -194,26 +192,18 @@ export const cancelAppointment = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
-    const appt = await Appointment.findOne({
-        where: { id },
-        include: req.user?.role === 'ADMIN'
-            ? [{ model: Patient }]
-            : [{ model: Patient, where: { clinicId: req.user?.clinicId } }]
-    })
+    const appt = await findScopedAppointmentById(req.clinicId, id)
     if (!appt) return res.status(404).json({ message: 'Turno no encontrado' })
 
     if (req.user.role === 'PACIENTE') {
-        const patient = await Patient.findOne({ where: { email: req.user.email, clinicId: req.user?.clinicId } })
+        const patient = await findScopedPatientByEmail(req.clinicId, req.user.email)
         if (!patient || patient.id !== appt.patientId) {
             return res.status(403).json({ message: 'No puedes cancelar este turno' })
         }
     }
 
     if (req.user.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({
-            where: { userId: req.user.id },
-            include: [{ model: User, where: { clinicId: req.user?.clinicId }, attributes: [] }]
-        })
+        const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
         if (!dentist || dentist.id !== appt.dentistId) {
             return res.status(403).json({ message: 'No puedes cancelar este turno' })
         }
@@ -222,7 +212,7 @@ export const cancelAppointment = async (req, res) => {
     appt.status = 'CANCELADO'
     await appt.save()
 
-    res.json({ appointment: appt })
+    res.json({ appointment: serializeAppointment(appt) })
 }
 
 const statusSchema = z.object({
@@ -233,22 +223,14 @@ export const updateStatus = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
-    const appt = await Appointment.findOne({
-        where: { id },
-        include: req.user?.role === 'ADMIN'
-            ? [{ model: Patient }]
-            : [{ model: Patient, where: { clinicId: req.user?.clinicId } }]
-    })
+    const appt = await findScopedAppointmentById(req.clinicId, id)
     if (!appt) return res.status(404).json({ message: 'Turno no encontrado' })
 
     const parsed = statusSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Estado invalido', errors: parsed.error.errors })
 
     if (req.user.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({
-            where: { userId: req.user.id },
-            include: [{ model: User, where: { clinicId: req.user?.clinicId }, attributes: [] }]
-        })
+        const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
         if (!dentist || dentist.id !== appt.dentistId) {
             return res.status(403).json({ message: 'No puedes modificar este turno' })
         }
@@ -257,7 +239,7 @@ export const updateStatus = async (req, res) => {
     appt.status = parsed.data.status
     await appt.save()
 
-    res.json({ appointment: appt })
+    res.json({ appointment: serializeAppointment(appt) })
 }
 
 const rescheduleSchema = z.object({
@@ -270,22 +252,14 @@ export const rescheduleAppointment = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
-    const appt = await Appointment.findOne({
-        where: { id },
-        include: req.user?.role === 'ADMIN'
-            ? [{ model: Patient }]
-            : [{ model: Patient, where: { clinicId: req.user?.clinicId } }]
-    })
+    const appt = await findScopedAppointmentById(req.clinicId, id)
     if (!appt) return res.status(404).json({ message: 'Turno no encontrado' })
 
     const parsed = rescheduleSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Datos invalidos', errors: parsed.error.errors })
 
     if (req.user.role === 'ODONTOLOGO') {
-        const dentist = await Dentist.findOne({
-            where: { userId: req.user.id },
-            include: [{ model: User, where: { clinicId: req.user?.clinicId }, attributes: [] }]
-        })
+        const dentist = await findScopedDentistByUserId(req.clinicId, req.user.id)
         if (!dentist || dentist.id !== appt.dentistId) {
             return res.status(403).json({ message: 'No puedes modificar este turno' })
         }
@@ -306,10 +280,17 @@ export const rescheduleAppointment = async (req, res) => {
     let updatedAppt = null
 
     await sequelize.transaction(async (transaction) => {
-        await Dentist.findByPk(appt.dentistId, {
+        const lockedDentist = await Dentist.findOne({
+            where: { id: appt.dentistId },
+            include: [{ model: User, where: { clinicId: req.clinicId }, attributes: [], required: true }],
             transaction,
             lock: transaction.LOCK.UPDATE
         })
+        if (!lockedDentist) {
+            const err = new Error('Dentista no encontrado')
+            err.status = 404
+            throw err
+        }
 
         const lockedAppt = await Appointment.findByPk(appt.id, {
             transaction,
@@ -371,5 +352,5 @@ export const rescheduleAppointment = async (req, res) => {
 
     if (res.headersSent) return
 
-    res.json({ appointment: updatedAppt })
+    res.json({ appointment: serializeAppointment(updatedAppt) })
 }

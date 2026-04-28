@@ -14,7 +14,7 @@ export const listUserPermissions = async (req, res) => {
     const userId = Number(req.params.id)
     if (!userId) return res.status(400).json({ message: 'ID requerido' })
 
-    const user = await User.findByPk(userId)
+    const user = await User.findOne({ where: { id: userId, clinicId: req.clinicId } })
     if (!user) return res.status(404).json({ message: 'Usuario no encontrado' })
     if (user.role !== 'ODONTOLOGO') {
         return res.status(400).json({ message: 'Solo se pueden ver permisos de odontologos' })
@@ -34,7 +34,7 @@ export const updateUserPermissions = async (req, res) => {
     const userId = Number(req.params.id)
     if (!userId) return res.status(400).json({ message: 'ID requerido' })
 
-    const user = await User.findByPk(userId)
+    const user = await User.findOne({ where: { id: userId, clinicId: req.clinicId } })
     if (!user) return res.status(404).json({ message: 'Usuario no encontrado' })
     if (user.role !== 'ODONTOLOGO') {
         return res.status(400).json({ message: 'Solo se pueden configurar permisos para odontologos' })

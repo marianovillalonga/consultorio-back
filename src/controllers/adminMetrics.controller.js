@@ -1,5 +1,6 @@
 import { Appointment, Patient } from '../models/index.js'
 import { Op } from 'sequelize'
+import { scopedPatientInclude } from '../utils/clinicScope.js'
 
 const toDate = (value, endOfDay = false) => {
     if (!value) return null
@@ -31,22 +32,31 @@ export const adminMetrics = async (req, res) => {
         startAt: { [Op.gte]: startDate, [Op.lte]: endDate }
     }
 
-    const totalAppointments = await Appointment.count({ where: appointmentWhere })
+    const appointmentScope = {
+        include: [scopedPatientInclude(req.clinicId, [])],
+        distinct: true,
+        col: 'Appointment.id'
+    }
+
+    const totalAppointments = await Appointment.count({ where: appointmentWhere, ...appointmentScope })
     const canceledAppointments = await Appointment.count({
-        where: { ...appointmentWhere, status: 'CANCELADO' }
+        where: { ...appointmentWhere, status: 'CANCELADO' },
+        ...appointmentScope
     })
     const attendedAppointments = await Appointment.count({
-        where: { ...appointmentWhere, status: 'ASISTIO' }
+        where: { ...appointmentWhere, status: 'ASISTIO' },
+        ...appointmentScope
     })
     const noShowAppointments = await Appointment.count({
-        where: { ...appointmentWhere, status: 'NO_ASISTIO' }
+        where: { ...appointmentWhere, status: 'NO_ASISTIO' },
+        ...appointmentScope
     })
 
     const createdWhere = {
         createdAt: { [Op.gte]: startDate, [Op.lte]: endDate }
     }
-    const createdAppointments = await Appointment.count({ where: createdWhere })
-    const newPatients = await Patient.count({ where: createdWhere })
+    const createdAppointments = await Appointment.count({ where: createdWhere, ...appointmentScope })
+    const newPatients = await Patient.count({ where: { ...createdWhere, clinicId: req.clinicId } })
 
     const totalDays = daysBetween(startDate, endDate)
     const occupancyRate = totalAppointments ? (attendedAppointments / totalAppointments) * 100 : 0

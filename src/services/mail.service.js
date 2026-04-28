@@ -1,11 +1,12 @@
 import { Resend } from 'resend'
 import { env } from '../config/env.js'
+import logger from '../lib/logger.js'
 
 const resend = new Resend(env.resend.apiKey)
 
 export async function sendActivationEmail({ to, link }) {
   if (!env.resend.apiKey) {
-    console.error('Falta RESEND_API_KEY')
+    logger.error('mail_activation_missing_resend_api_key')
     return
   }
 
@@ -33,21 +34,21 @@ export async function sendActivationEmail({ to, link }) {
     })
 
     if (error) {
-      console.error('Resend error:', error) // muestra status/message de Resend
+      logger.error('mail_activation_provider_error', { error })
       throw error
     }
 
-    console.log('Email enviado. id:', data?.id)
+    logger.info('mail_activation_sent', { emailProviderId: data?.id || null, to })
     return data?.id
   } catch (e) {
-    console.error('Fallo al enviar email:', e?.message || e)
+    logger.error('mail_activation_send_failed', { error: e, to })
     throw e
   }
 }
 
 export async function sendPasswordResetEmail({ to, link }) {
   if (!env.resend.apiKey) {
-    console.error('Falta RESEND_API_KEY')
+    logger.error('mail_reset_missing_resend_api_key')
     return
   }
 
@@ -75,14 +76,14 @@ export async function sendPasswordResetEmail({ to, link }) {
     })
 
     if (error) {
-      console.error('Resend error:', error)
+      logger.error('mail_reset_provider_error', { error })
       throw error
     }
 
-    console.log('Email enviado. id:', data?.id)
+    logger.info('mail_reset_sent', { emailProviderId: data?.id || null, to })
     return data?.id
   } catch (e) {
-    console.error('Fallo al enviar email:', e?.message || e)
+    logger.error('mail_reset_send_failed', { error: e, to })
     throw e
   }
 }

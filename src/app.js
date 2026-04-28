@@ -7,11 +7,13 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import swaggerUi from 'swagger-ui-express'
 import rateLimit from 'express-rate-limit'
-import { randomUUID } from 'crypto'
-import { ZodError } from 'zod'
 import { env } from './config/env.js'
 import { csrfProtect } from './middlewares/csrf.js'
 import { authRequired, requireRole } from './middlewares/auth.js'
+import logger from './lib/logger.js'
+import { requestIdMiddleware } from './middlewares/requestId.js'
+import { createHttpLoggerMiddleware } from './middlewares/httpLogger.js'
+import { createErrorHandler } from './middlewares/errorHandler.js'
 import routes from './routes/index.js'
 
 const app = express()
@@ -49,13 +51,7 @@ const corsOptions = {
   optionsSuccessStatus: 204
 }
 
-app.use((req, res, next) => {
-  if (req.headers.origin) {
-    console.log('Origin recibido:', req.headers.origin)
-  }
-  next()
-})
-
+app.use(requestIdMiddleware)
 app.use(cors(corsOptions))
 
 const globalLimiter = rateLimit({
@@ -79,7 +75,7 @@ let openapiSpec = null
 try {
   openapiSpec = JSON.parse(fs.readFileSync(openapiPath, 'utf-8'))
 } catch (err) {
-  console.warn('[openapi] No se pudo cargar openapi.json', err?.message)
+  logger.warn('openapi_load_failed', { error: err })
 }
 
 app.use((req, res, next) => (req.method === 'OPTIONS' ? next() : csrfProtect(req, res, next)))
@@ -91,33 +87,7 @@ const metrics = {
   startTime: Date.now()
 }
 
-app.use((req, res, next) => {
-  const requestId = randomUUID()
-  req.id = requestId
-  res.setHeader('X-Request-Id', requestId)
-
-  const start = Date.now()
-  res.on('finish', () => {
-    const durationMs = Date.now() - start
-    metrics.totalRequests += 1
-    metrics.statusCounts[res.statusCode] = (metrics.statusCounts[res.statusCode] || 0) + 1
-
-    const log = {
-      level: 'info',
-      msg: 'request',
-      requestId,
-      method: req.method,
-      path: req.originalUrl,
-      status: res.statusCode,
-      durationMs,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'] || ''
-    }
-    console.log(JSON.stringify(log))
-  })
-
-  next()
-})
+app.use(createHttpLoggerMiddleware({ metrics }))
 
 app.get('/health', (req, res) => res.json({ status: 'OK' }))
 app.get('/metrics', authRequired, requireRole('ADMIN'), (req, res) => {
@@ -143,48 +113,6 @@ if (openapiSpec) {
 }
 app.use('/api', routes)
 
-app.use((err, req, res, next) => {
-  if (res.headersSent) return next(err)
-
-  metrics.totalErrors += 1
-
-  const isCorsError = err?.message === 'Not allowed by CORS'
-  const isZodError = err instanceof ZodError
-  const status = isCorsError ? 403 : isZodError ? 400 : Number(err?.status || err?.statusCode || 500)
-  const isControlled = status >= 400 && status < 500
-
-  console.error(JSON.stringify({
-    level: 'error',
-    msg: 'request_error',
-    requestId: req.id,
-    status,
-    error: err?.message || 'Unknown error',
-    stack: err?.stack || null
-  }))
-
-  if (isCorsError) {
-    return res.status(403).json({ message: 'CORS: origin no permitido', requestId: req.id })
-  }
-
-  if (isZodError) {
-    return res.status(400).json({
-      message: 'Datos invalidos',
-      errors: err.issues,
-      requestId: req.id
-    })
-  }
-
-  if (isControlled) {
-    return res.status(status).json({
-      message: err?.message || 'Solicitud invalida',
-      requestId: req.id
-    })
-  }
-
-  return res.status(500).json({
-    message: 'Error interno del servidor',
-    requestId: req.id
-  })
-})
+app.use(createErrorHandler({ metrics }))
 
 export default app

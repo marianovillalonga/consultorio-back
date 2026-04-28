@@ -3,47 +3,8 @@ import { Availability, Dentist, User } from '../models/index.js'
 import { Op } from 'sequelize'
 import { getUserByEmail, hashPassword, validatePasswordStrength } from '../services/auth.service.js'
 import { logAudit } from '../services/audit.service.js'
-
-const normalizeSpecialties = (value) => {
-    if (!value) return []
-    if (Array.isArray(value)) {
-        return value.map((s) => String(s).trim()).filter(Boolean)
-    }
-    if (typeof value === 'string') {
-        return value
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-    }
-    return []
-}
-
-const serializeDentist = (dentist) => {
-    const json = dentist.toJSON ? dentist.toJSON() : dentist
-    let specialties = []
-    if (json.specialties) {
-        try {
-            const parsed = JSON.parse(json.specialties)
-            if (Array.isArray(parsed)) specialties = parsed
-        } catch {
-            specialties = normalizeSpecialties(json.specialties)
-        }
-    }
-    if (!specialties.length && json.specialty) {
-        specialties = [json.specialty]
-    }
-    return {
-        id: json.id,
-        userId: json.userId,
-        fullName: json.fullName || null,
-        photoUrl: json.photoUrl || null,
-        bio: json.bio || null,
-        specialties,
-        specialty: json.specialty || null,
-        license: json.license || null,
-        user: json.User ? { id: json.User.id, email: json.User.email, role: json.User.role } : null
-    }
-}
+import { findScopedDentistById, scopedUserInclude } from '../utils/clinicScope.js'
+import { sanitizeDentistProfile, sanitizeDentistSummary } from '../utils/sanitizers.js'
 
 export const listDentists = async (req, res) => {
     const specialty = req.query.specialty
@@ -57,18 +18,21 @@ export const listDentists = async (req, res) => {
 
     const dentists = await Dentist.findAll({
         where,
-        include: [{ model: User, attributes: ['id', 'email', 'role'], required: true }]
+        include: [scopedUserInclude(req.clinicId, [])]
     })
 
-    res.json({ dentists: dentists.map((d) => serializeDentist(d)) })
+    res.json({ dentists: dentists.map((d) => sanitizeDentistSummary(d)) })
 }
 
 export const listSpecialties = async (_req, res) => {
-    const rows = await Dentist.findAll({ attributes: ['specialty', 'specialties'] })
+    const rows = await Dentist.findAll({
+        attributes: ['specialty', 'specialties'],
+        include: [scopedUserInclude(_req.clinicId, [])]
+    })
     const set = new Set()
     rows.forEach((row) => {
         if (row.specialty) set.add(row.specialty)
-        const extra = normalizeSpecialties(row.specialties)
+        const extra = sanitizeDentistSummary(row).specialties
         extra.forEach((s) => set.add(s))
     })
     res.json({ specialties: Array.from(set) })
@@ -95,8 +59,12 @@ export const createDentist = async (req, res) => {
     if (exists) return res.status(409).json({ message: 'Email ya registrado' })
 
     const passwordHash = await hashPassword(data.password)
-    const user = await User.create({ email: data.email, passwordHash, role: 'ODONTOLOGO' })
-    const specialties = normalizeSpecialties(data.specialties)
+    const user = await User.create({ email: data.email, passwordHash, role: 'ODONTOLOGO', clinicId: req.clinicId })
+    const specialties = Array.isArray(data.specialties)
+        ? data.specialties.map((s) => String(s).trim()).filter(Boolean)
+        : typeof data.specialties === 'string'
+            ? data.specialties.split(',').map((s) => s.trim()).filter(Boolean)
+            : []
     const dentist = await Dentist.create({
         userId: user.id,
         fullName: data.fullName || null,
@@ -109,8 +77,7 @@ export const createDentist = async (req, res) => {
 
     await logAudit({ userId: req.user?.id, action: 'ADMIN_CREATE_DENTIST', details: { targetUserId: user.id } })
     res.status(201).json({
-        user: { id: user.id, email: user.email, role: user.role },
-        dentist
+        dentist: sanitizeDentistSummary(dentist)
     })
 }
 
@@ -127,7 +94,7 @@ export const updateDentist = async (req, res) => {
     const id = Number(req.params.id)
     if (!id) return res.status(400).json({ message: 'ID requerido' })
 
-    const dentist = await Dentist.findByPk(id)
+    const dentist = await findScopedDentistById(req.clinicId, id)
     if (!dentist) return res.status(404).json({ message: 'Dentista no encontrado' })
 
     // si es odontologo, solo puede editarse a si mismo
@@ -142,16 +109,23 @@ export const updateDentist = async (req, res) => {
 
     const updateData = { ...parsed.data }
     if (parsed.data.specialties !== undefined) {
-        const specialties = normalizeSpecialties(parsed.data.specialties)
+        const specialties = Array.isArray(parsed.data.specialties)
+            ? parsed.data.specialties.map((s) => String(s).trim()).filter(Boolean)
+            : typeof parsed.data.specialties === 'string'
+                ? parsed.data.specialties.split(',').map((s) => s.trim()).filter(Boolean)
+                : []
         updateData.specialties = specialties.length ? JSON.stringify(specialties) : null
     }
     await dentist.update(updateData)
-    res.json({ dentist })
+    res.json({ dentist: sanitizeDentistProfile(dentist) })
 }
 
 export const getDentistAvailability = async (req, res) => {
     const dentistId = Number(req.params.id)
     if (!dentistId) return res.status(400).json({ message: 'ID requerido' })
+
+    const dentist = await findScopedDentistById(req.clinicId, dentistId)
+    if (!dentist) return res.status(404).json({ message: 'Dentista no encontrado' })
 
     const rows = await Availability.findAll({
         where: { dentistId },

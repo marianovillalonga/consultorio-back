@@ -8,7 +8,8 @@ import {
     closeDb,
     createTestEmail,
     ensureUser,
-    ensurePatient
+    ensurePatient,
+    loginAndGetSession
 } from '../helpers/e2e.js'
 
 if (shouldRunE2E()) {
@@ -26,17 +27,17 @@ if (shouldRunE2E()) {
         await ensureUser({ email, password, role: 'PACIENTE' })
         await ensurePatient({ fullName: 'Paciente E2E', email })
 
-        const agent = request.agent(app)
-        const loginRes = await agent
-            .post('/api/auth/login')
-            .send({ email, password })
-            .set('Content-Type', 'application/json')
+        const session = await loginAndGetSession(app, { email, password })
+        const loginRes = session.loginRes
 
         assert.equal(loginRes.status, 200)
-        const csrf = loginRes.headers['x-csrf-token']
-        assert.ok(csrf)
+        assert.ok(session.csrfToken)
+        assert.ok(session.cookieHeader)
 
-        const refreshRes = await agent.post('/api/auth/refresh')
+        const refreshRes = await request(app)
+            .post('/api/auth/refresh')
+            .set('Cookie', session.cookieHeader)
+            .set('X-CSRF-Token', session.csrfToken)
         assert.equal(refreshRes.status, 200)
         const refreshCsrf = refreshRes.headers['x-csrf-token']
         assert.ok(refreshCsrf)
