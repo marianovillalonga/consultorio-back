@@ -10,10 +10,10 @@ const studyFileSchema = z.object({
   name: z.string().min(1).max(255),
   mime: z.string().min(1).max(200),
   data: z.string().optional(),
-  storageKey: z.string().max(400).optional(),
+  storageKey: z.string().max(400).optional().nullable(),
   description: z.string().max(500).optional(),
   createdAt: z.string().min(1).max(40),
-  uploadedBy: z.number().int().optional()
+  uploadedBy: z.number().int().optional().nullable()
 })
 
 const studyFilesSchema = z.array(studyFileSchema)
@@ -205,6 +205,7 @@ const stripFileData = (files = []) =>
     id: item.id,
     name: item.name,
     mime: item.mime,
+    storageKey: item.storageKey || null,
     description: item.description || '',
     createdAt: item.createdAt,
     uploadedBy: item.uploadedBy || null
